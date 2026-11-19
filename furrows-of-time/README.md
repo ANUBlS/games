@@ -38,7 +38,7 @@ Progress is saved in your browser.
 
 ## Graphics
 
-The field has real-time shadows from the sun, a sky with sun or moon and drifting clouds, distant hills, and grass, crops and trees that sway in the wind. The shop has a Graphics setting:
+The farm is drawn like a haystack game: big haystacks built from thousands of separate straws stand by the barns and around the farm, loose straw lies on plowed soil, straw flies up when you harvest or plow, and dust drifts in the sunlight. The field also has real-time shadows from the sun, a sky with sun or moon and drifting clouds, distant hills, and grass, crops and trees that sway in the wind. The shop has a Graphics setting:
 
 - **High:** sharp shadows and the densest grass. The default on computers.
 - **Medium:** softer shadows and less grass. The default on phones.
