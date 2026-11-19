@@ -36,6 +36,14 @@ A simulated player who never stops needs about 7 hours to reach 3000 and buy eve
 
 Progress is saved in your browser.
 
+## Graphics
+
+The field has real-time shadows from the sun, a sky with sun or moon and drifting clouds, distant hills, and grass, crops and trees that sway in the wind. The shop has a Graphics setting:
+
+- **High:** sharp shadows and the densest grass. The default on computers.
+- **Medium:** softer shadows and less grass. The default on phones.
+- **Low:** no shadows and no grass, for slower phones.
+
 ## Running it
 
 Open `index.html` in a current browser. It is a single file and loads three.js r128 from cdnjs, so it needs an internet connection.
