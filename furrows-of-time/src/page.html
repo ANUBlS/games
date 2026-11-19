@@ -379,6 +379,13 @@ svg{display:block}
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   // Colours in this file are written as sRGB hex; materials want them linear.
   const LIN = c => new THREE.Color(c).convertSRGBToLinear();
+  const dotTex = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.35, 'rgba(255,255,255,.8)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(c);
+  })();
   const fixColor = o => { if (o && o.color !== undefined && !(o.color instanceof THREE.Color)) o.color = LIN(o.color); return o; };
   const stdMat = o => new THREE.MeshStandardMaterial(Object.assign({roughness:.82, metalness:0}, fixColor(Object.assign({}, o))));
   const basicMat = o => new THREE.MeshBasicMaterial(fixColor(Object.assign({}, o)));
@@ -471,15 +478,15 @@ svg{display:block}
   sky.frustumCulled = false; sky.renderOrder = -1; scene.add(sky);
 
   // Far hills ring the farm, and clouds drift over it.
-  const hillMat = stdMat({color:0x6a8a5a, flatShading:true, fog:false, roughness:1});
+  const hillMat = stdMat({color:0x6a8a5a, fog:false, roughness:1});
   {
-    const geo = new THREE.ConeGeometry(1, 1, 7, 2);
+    const geo = new THREE.SphereGeometry(1, 28, 10, 0, Math.PI * 2, 0, Math.PI / 2);
     const hills = new THREE.InstancedMesh(geo, hillMat, 70);
     const d = new THREE.Object3D(); let s = 31;
     const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
     for (let n = 0; n < 70; n++){
       const a = n / 70 * Math.PI * 2 + rnd() * .1, r = 540 + rnd() * 160, w = 110 + rnd() * 120, h = 28 + rnd() * 55;
-      d.position.set(N / 2 + Math.cos(a) * r, h / 2 - 4, N / 2 + Math.sin(a) * r); d.scale.set(w, h, w * (.7 + rnd() * .5)); d.rotation.y = rnd() * 6; d.updateMatrix();
+      d.position.set(N / 2 + Math.cos(a) * r, -6, N / 2 + Math.sin(a) * r); d.scale.set(w, h, w * (.7 + rnd() * .5)); d.rotation.y = rnd() * 6; d.updateMatrix();
       hills.setMatrixAt(n, d.matrix);
     }
     hills.frustumCulled = false; scene.add(hills);
@@ -515,15 +522,59 @@ svg{display:block}
       pos.push(Math.cos(a) * Math.cos(e) * r, Math.sin(e) * r, Math.sin(a) * Math.cos(e) * r);
     }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    const p = new THREE.Points(g, ptsMat({color:0xffffff, size:2, sizeAttenuation:false, fog:false, transparent:true, opacity:.9, depthWrite:false}));
+    const p = new THREE.Points(g, ptsMat({color:0xffffff, size:3, sizeAttenuation:false, fog:false, transparent:true, opacity:.9, depthWrite:false, map:dotTex}));
     p.frustumCulled = false; p.visible = false; scene.add(p); return p;
   })();
 
   // The field is one flat plane. Each plot is one texel of a 256x256 texture, repainted as plots change.
-  const px = new Uint8Array(N * N * 4);
+  const px = new Uint8Array(N * N * 4), mapPx = new Uint8ClampedArray(N * N * 4);
   const tex = new THREE.DataTexture(px, N, N, THREE.RGBAFormat);
-  tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.generateMipmaps = true; tex.encoding = THREE.sRGBEncoding;
-  const fieldMesh = new THREE.Mesh(new THREE.PlaneGeometry(N, N), stdMat({map:tex, roughness:.96}));
+  tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.generateMipmaps = true; tex.encoding = THREE.sRGBEncoding;
+  const fieldMat = stdMat({map:tex, roughness:.96});
+  // Ground detail: grass blades and furrowed soil, tiled in metres and blended by each plot's state (kept in alpha).
+  function detailTex(draw){
+    const c = document.createElement('canvas'); c.width = c.height = 512;
+    const g = c.getContext('2d'); draw(g);
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    return t;
+  }
+  const grassDetail = detailTex(g => {
+    let s = 3; const r = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    g.fillStyle = 'rgb(200,200,200)'; g.fillRect(0, 0, 512, 512);
+    for (let n = 0; n < 2600; n++){ const v = 150 + r() * 105 | 0; g.fillStyle = 'rgba(' + v + ',' + v + ',' + v + ',.35)'; g.beginPath(); g.arc(r() * 512, r() * 512, 6 + r() * 22, 0, 7); g.fill(); }
+    g.lineCap = 'round';
+    for (let n = 0; n < 14000; n++){
+      const x = r() * 512, y = r() * 512, l = 5 + r() * 12, a = -Math.PI / 2 + (r() - .5) * 1.2, v = 140 + r() * 115 | 0;
+      g.strokeStyle = 'rgba(' + v + ',' + v + ',' + v + ',.8)'; g.lineWidth = 1 + r() * 1.4;
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+    }
+  });
+  const soilDetail = detailTex(g => {
+    let s = 8; const r = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    for (let y = 0; y < 512; y++){
+      const f = .5 + .5 * Math.sin(y / 512 * Math.PI * 2 * 4), v = 120 + f * f * 120 | 0;
+      g.fillStyle = 'rgb(' + v + ',' + v + ',' + v + ')'; g.fillRect(0, y, 512, 1);
+    }
+    for (let n = 0; n < 5000; n++){ const v = 90 + r() * 150 | 0; g.fillStyle = 'rgba(' + v + ',' + v + ',' + v + ',.55)'; g.beginPath(); g.arc(r() * 512, r() * 512, .8 + r() * 3.2, 0, 7); g.fill(); }
+  });
+  fieldMat.onBeforeCompile = sh => {
+    sh.uniforms.tGrass = {value:grassDetail}; sh.uniforms.tSoil = {value:soilDetail};
+    sh.fragmentShader = 'uniform sampler2D tGrass; uniform sampler2D tSoil;\n' + sh.fragmentShader.replace('#include <map_fragment>', [
+      '#ifdef USE_MAP',
+      'vec4 plot = texture2D(map, vUv);',
+      'float st = plot.a;',
+      'plot = mapTexelToLinear(plot);',
+      'vec2 wuv = vUv * ' + N.toFixed(1) + ';',
+      'float gd = texture2D(tGrass, wuv * 0.25).r;',
+      'float sd = texture2D(tSoil, wuv * 0.5).r;',
+      'float soil = smoothstep(0.12, 0.3, st) * (1.0 - smoothstep(0.75, 0.92, st));',
+      'float det = mix(gd * 1.25, sd * 1.35, soil);',
+      'diffuseColor.rgb *= plot.rgb * det;',
+      '#endif'].join('\n'));
+  };
+  fieldMat.customProgramCacheKey = () => 'field-detail';
+  const fieldMesh = new THREE.Mesh(new THREE.PlaneGeometry(N, N), fieldMat);
   fieldMesh.receiveShadow = true;
   fieldMesh.rotation.x = -Math.PI / 2; fieldMesh.position.set(N / 2, 0, N / 2);
   scene.add(fieldMesh);
@@ -547,7 +598,7 @@ svg{display:block}
     gt.encoding = THREE.sRGBEncoding; gt.minFilter = THREE.LinearMipmapLinearFilter;
     const grid = new THREE.Mesh(new THREE.PlaneGeometry(N, N), basicMat({map:gt, transparent:true, depthWrite:false, blending:THREE.MultiplyBlending, premultipliedAlpha:true, toneMapped:false, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2}));
     grid.rotation.x = -Math.PI / 2; grid.position.set(N / 2, .02, N / 2); grid.renderOrder = 1;
-    scene.add(grid);
+    grid.visible = false;
   }
   const outerMat = stdMat({color:0x5f8440});
   const outer = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600), outerMat);
@@ -562,7 +613,9 @@ svg{display:block}
   function paintCell(k){
     const st = F.st[k], c = st === G.WILD ? C_GRASS : st === G.PLOWED ? C_SOIL : st === G.GROWING ? C_SOWN : C_CROP[F.crop[k]];
     const i = k % N, j = (k / N) | 0, o = ((N - 1 - j) * N + i) * 4, n = noise[k];
-    px[o] = Math.min(255, c[0] * n); px[o + 1] = Math.min(255, c[1] * n); px[o + 2] = Math.min(255, c[2] * n); px[o + 3] = 255;
+    px[o] = Math.min(255, c[0] * n); px[o + 1] = Math.min(255, c[1] * n); px[o + 2] = Math.min(255, c[2] * n);
+    px[o + 3] = st === G.WILD ? 0 : st === G.PLOWED ? 85 : st === G.GROWING ? 170 : 255;
+    mapPx[o] = px[o]; mapPx[o + 1] = px[o + 1]; mapPx[o + 2] = px[o + 2]; mapPx[o + 3] = 255;
   }
   function paintAll(){ for (let k = 0; k < N * N; k++) paintCell(k); tex.needsUpdate = true; mapDirty = true; }
 
@@ -607,8 +660,10 @@ svg{display:block}
   const beacons = [];
   for (const [bxp, bzp] of G.BARNS){
     const b = new THREE.Group();
-    const roof = new THREE.Mesh(new THREE.CylinderGeometry(4.3, 4.3, 7.4, 3, 1), lam(0x7a5a46));
-    roof.rotation.z = Math.PI / 2; roof.rotation.y = Math.PI / 2; roof.scale.set(1, 1, .62); roof.position.y = 5.4;
+    const gable = new THREE.Shape(); gable.moveTo(-3.9, 0); gable.lineTo(3.9, 0); gable.lineTo(0, 2.9); gable.lineTo(-3.9, 0);
+    const roofGeo = new THREE.ExtrudeGeometry(gable, {depth:7, bevelEnabled:false}); roofGeo.translate(0, 0, -3.5);
+    const roof = new THREE.Mesh(roofGeo, [lam(0xa8322a), lam(0x5d4a40)]);
+    roof.position.y = 4.4;
     b.add(bx(7, 4.4, 6.4, lam(0xa8322a), 0, 2.2, 0), roof,
       bx(2.6, 3, .12, lam(0xf2ece0), 0, 1.5, 3.22), bx(2.2, 2.6, .14, lam(0x7a2420), 0, 1.4, 3.24),
       bx(.18, 2.9, .16, lam(0xf2ece0), 0, 1.45, 3.3), bx(1.3, .9, .9, MAT.straw, 2.6, .45, 4.1), bx(1.3, .9, .9, MAT.straw, 3.1, 1.3, 4.0));
@@ -623,13 +678,16 @@ svg{display:block}
     scene.add(b);
     pad.position.set(bxp, .08, bzp); scene.add(pad);
   }
-  const treeMat = addWind(stdMat({color:0xffffff, flatShading:true, roughness:.9}), .004);
+  const treeMat = addWind(stdMat({color:0xffffff, roughness:.85}), .004);
   const trunkMat = stdMat({color:0x6b4a2e, roughness:.95});
   {
     const T = 300, d = new THREE.Object3D(); let s = 777;
     const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
     const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(.22, .32, 1, 6).translate(0, .5, 0), trunkMat, T);
-    const crownGeo = new THREE.IcosahedronGeometry(1, 0);
+    const crownGeo = new THREE.SphereGeometry(1, 16, 12);
+    { const pa = crownGeo.attributes.position, v = new THREE.Vector3();
+      for (let a = 0; a < pa.count; a++){ v.fromBufferAttribute(pa, a); const w = 1 + .12 * Math.sin(v.x * 5.1 + v.y * 3.7) * Math.cos(v.z * 4.3 - v.y * 2.1); pa.setXYZ(a, v.x * w, v.y * w, v.z * w); }
+      crownGeo.computeVertexNormals(); }
     const crowns = [0, 1, 2].map(() => new THREE.InstancedMesh(crownGeo, treeMat, T));
     const col = new THREE.Color();
     for (let n = 0; n < T; n++){
@@ -667,7 +725,7 @@ svg{display:block}
   const SPOTS = [[-.28, -.24, .8], [.24, -.2, .72], [0, .02, .88], [-.22, .28, .76], [.28, .26, .82]];
   const stemPart = (x, z, h) => { const g = new THREE.CylinderGeometry(.018, .032, h, 5, 1); g.translate(x, h / 2, z); return g.index ? g : g; };
   const leafPart = (x, z, h, a) => { const g = new THREE.ConeGeometry(.06, h * .55, 3, 1); g.scale(1, 1, .25); g.rotateZ(.75); g.rotateY(a); g.translate(x + Math.cos(a) * .1, h * .38, z - Math.sin(a) * .1); return g; };
-  const headPart = (x, z, h) => { const g = new THREE.IcosahedronGeometry(1, 0); g.scale(.085, .2, .085); g.translate(x, h + .14, z); return g; };
+  const headPart = (x, z, h) => { const g = new THREE.SphereGeometry(1, 8, 6); g.scale(.085, .2, .085); g.translate(x, h + .14, z); return g; };
   const asIndexed = g => { if (!g.index){ const n = g.attributes.position.count, ix = []; for (let a = 0; a < n; a++) ix.push(a); g.setIndex(ix); } return g; };
   const stemGeo = merged(SPOTS.flatMap(([x, z, h], q) => [stemPart(x, z, h), leafPart(x, z, h, q * 1.9), leafPart(x, z, h * .8, q * 1.9 + 2.6)]).map(asIndexed));
   const headGeo = merged(SPOTS.map(([x, z, h]) => asIndexed(headPart(x, z, h))));
@@ -803,7 +861,7 @@ svg{display:block}
   const dust = (() => {
     const pos = []; for (let n = 0; n < 380; n++) pos.push((rnd() - .5) * 36, rnd() * 7, (rnd() - .5) * 36);
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    const p = new THREE.Points(g, ptsMat({color:0xfff0c0, size:.07, transparent:true, opacity:.75, depthWrite:false, blending:THREE.AdditiveBlending}));
+    const p = new THREE.Points(g, ptsMat({color:0xfff0c0, size:.06, transparent:true, opacity:.55, depthWrite:false, blending:THREE.AdditiveBlending, map:dotTex}));
     p.frustumCulled = false; scene.add(p); return p;
   })();
   stems.setColorAt(0, GREEN); heads.setColorAt(0, GREEN);
@@ -1119,7 +1177,7 @@ svg{display:block}
     if (!['high', 'medium', 'low'].includes(q)) q = 'medium';
     gfx = q; try { localStorage.setItem(GFX_KEY, q); } catch (e) {}
     const dpr = window.devicePixelRatio || 1;
-    renderer.setPixelRatio(q === 'high' ? Math.min(dpr, 2) : q === 'medium' ? Math.min(dpr, 1.5) : 1);
+    renderer.setPixelRatio(q === 'high' ? Math.min(dpr, 2.5) : q === 'medium' ? Math.min(dpr, 2) : Math.min(dpr, 1.25));
     const shadows = q !== 'low', size = q === 'high' ? 2048 : 1024;
     if (renderer.shadowMap.enabled !== shadows || sun.shadow.mapSize.x !== size){
       renderer.shadowMap.enabled = shadows; sun.castShadow = shadows;
@@ -1137,7 +1195,7 @@ svg{display:block}
 
   /* ---------- map ---------- */
   const mapCtx = $('map').getContext('2d');
-  const mapImg = new ImageData(new Uint8ClampedArray(px.buffer), N, N);
+  const mapImg = new ImageData(mapPx, N, N);
   let mapDirty = true;
   function paintMap(){
     if (mapDirty){
