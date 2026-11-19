@@ -6,10 +6,10 @@
 <title>Realistic Furrows of Time</title>
 <style>
 body { margin:0; overflow:hidden; font-family: system-ui, sans-serif; background:#87CEEB; color:#fff; }
-#hud { position:absolute; top:12px; left:12px; background:rgba(0,0,0,.55); padding:10px 14px; border-radius:10px; font-size:14px; pointer-events:none; min-width:220px; }
+#hud { position:absolute; top:12px; left:12px; background:rgba(0,0,0,.55); padding:10px 14px; border-radius:10px; font-size:14px; pointer-events:none; min-width:220px; z-index:2; }
 #hud div { margin:2px 0; }
-#hint { position:absolute; bottom:16px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.5); padding:6px 12px; border-radius:20px; font-size:13px; }
-canvas { display:block; }
+#hint { position:absolute; bottom:16px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.5); padding:6px 12px; border-radius:20px; font-size:13px; z-index:2; }
+canvas { display:block; position:fixed; inset:0; }
 </style>
 </head>
 <body>
@@ -26,9 +26,9 @@ canvas { display:block; }
 const N = 48;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB);
-scene.fog = new THREE.FogExp2(0x87CEEB, 0.012);
+scene.fog = new THREE.FogExp2(0x87CEEB, 0.008);
 
-const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 300);
+const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 400);
 const renderer = new THREE.WebGLRenderer({antialias:true});
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
@@ -131,7 +131,7 @@ function updateHud() {
 const keys = {};
 document.addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'Space') working = !working; });
 document.addEventListener('keyup', e => keys[e.code] = false);
-let working = true, yaw = 0, pitch = -0.25;
+let working = true, yaw = Math.PI, pitch = -0.35;
 let locked = false;
 renderer.domElement.addEventListener('click', () => renderer.domElement.requestPointerLock());
 document.addEventListener('pointerlockchange', () => locked = document.pointerLockElement === renderer.domElement);
@@ -165,7 +165,7 @@ function animate(now) {
   requestAnimationFrame(animate);
 }
 updateTerrain(); updateCrops(); updateHud();
-camera.position.set(N/2, 1.65, 3);
+camera.position.set(N/2, 1.65, N - 4);
 requestAnimationFrame(animate);
 window.addEventListener('resize', () => {
   camera.aspect = innerWidth/innerHeight;
