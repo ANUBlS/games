@@ -1625,6 +1625,7 @@ svg{display:block}
     clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2800);
   }
   function rockNews(res){
+    if (res.water && !res.n) toast('water', 'Water covers that ground. Nothing can be worked there until it drains.', 6000);
     if (res.snowBlocked && !res.n){
       const st = G.TRACKS.find(t => t.id === 'snow').tiers[1];
       toast('snowtool', 'Snow covers the ground. You need a snow tool to plow or sow in it' + (S.lv.snow ? '.' : ': a ' + st.name.toLowerCase() + ' from the shop.'), 7000);
@@ -1877,7 +1878,7 @@ svg{display:block}
       else if (e.kind === 'snow') toast('snow', 'Snow is falling. Only winter crops keep growing.', 30000);
     } else if (e.type === 'flood'){
       addPool(e.x, e.z, e.r, 22); sound('flood');
-      toast('flood', 'Flood! ' + (e.lost ? fmt(e.lost) + ' crops were washed away.' : 'Nothing was growing there.'), 1000);
+      toast('flood', 'Flood! ' + (e.lost ? fmt(e.lost) + ' crops died.' : 'Nothing was growing there.') + ' Keep out until the water drains; then plow, sow and harvest again. Replowing flooded ground does not count toward age tasks.', 1000);
     } else if (e.type === 'washout'){
       addPool(e.x, e.z, e.r, 6);
       toast('wash', 'Rain washed away ' + fmt(e.lost) + ' crops nearby.', 8000);
@@ -2271,8 +2272,9 @@ svg{display:block}
       if (len > 1){ f /= len; s /= len; }
       if (len > .05){
         const v = R.legs * dt, ox = S.px, oz = S.pz;
-        S.px = Math.max(.5, Math.min(N - .5, S.px + (-sin * f + cos * s) * v));
-        S.pz = Math.max(.5, Math.min(N - .5, S.pz + (-cos * f - sin * s) * v));
+        const nx = Math.max(.5, Math.min(N - .5, S.px + (-sin * f + cos * s) * v)), nz = Math.max(.5, Math.min(N - .5, S.pz + (-cos * f - sin * s) * v));
+        if (G.canStep(S, ox, oz, nx, nz)){ S.px = nx; S.pz = nz; }
+        else toast('water', 'Flood water blocks the way. It drains in a little while.', 6000);
         moved = (S.px - ox) * -sin + (S.pz - oz) * -cos;
         if (Math.abs(moved) < 1e-4) moved = Math.hypot(S.px - ox, S.pz - oz);
       }
@@ -2342,6 +2344,7 @@ svg{display:block}
     artMarkers();
     { const sea = G.season(S); if (sea === 3 && !S.snow) S.snow = S.wx && S.wx.kind === 'snow' ? .9 : .6; if (sea === 2) autumn = 1; }
     syncWorkers(0);
+    for (const p of S.pools || []) addPool(p.x, p.z, p.r, Math.max(0, p.t - 8));
     requestAnimationFrame(frame);
     document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
     window.addEventListener('pagehide', save);

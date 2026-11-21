@@ -648,7 +648,7 @@ const Game = (() => {
     return rock;
   }
   function freshField(){
-    return {st:new Uint8Array(N * N), crop:new Uint8Array(N * N), ever:new Uint8Array(N * N), ripe:new Float64Array(N * N), rest:new Float64Array(N * N), rock:placeRocks(new Uint8Array(N * N))};
+    return {st:new Uint8Array(N * N), crop:new Uint8Array(N * N), ever:new Uint8Array(N * N), ripe:new Float64Array(N * N), rest:new Float64Array(N * N), flood:new Uint8Array(N * N), rock:placeRocks(new Uint8Array(N * N))};
   }
   function rates(S){
     const r = {};
@@ -696,10 +696,12 @@ const Game = (() => {
     const seedCrop = CROPS[seedIdx], fertNeed = OPTS.fert ? seedCrop.fert : 0, seasonOk = inSeason(S, seedCrop);
     const eh = S.eraHarv || (S.eraHarv = {});
     const snowy = OPTS.seasons && (S.snow || 0) > .5 && !r.snow;
-    let snowBlocked = 0, resting = 0;
+    let snowBlocked = 0, resting = 0, water = 0, counted = 0;
+    const wet = S.pools && S.pools.length;
     for (let o = 0; o < off.length; o += 2){
       const i = ci + off[o], j = cj + off[o + 1];
       if (i < 0 || j < 0 || i >= N || j >= N) continue;
+      if (wet && inPool(S, i + .5, j + .5)){ water++; continue; }
       const k = j * N + i, st = F.st[k], rk = F.rock[k] & 7, hasGold = F.rock[k] & 8;
       if (rk){
         // A rock: only Plow mode can clear it, with a strong enough rock tool, and it costs coins.
@@ -715,6 +717,7 @@ const Game = (() => {
       if (st === WILD && doPlow){
         if (snowy){ snowBlocked++; continue; }
         F.st[k] = PLOWED; plowed++;
+        if (F.flood[k]) F.flood[k] = 0; else counted++;
         if (!F.ever[k]){ F.ever[k] = 1; S.worked++; }
       } else if (st === PLOWED && doSow){
         if (snowy){ snowBlocked++; continue; }
@@ -730,12 +733,12 @@ const Game = (() => {
       } else if (m === 'plow' && (st === GROWING || st === RIPE)){
         // Plow mode turns crops under: growing or ripe, they go back to bare plowed soil and are lost.
         if (st === GROWING) S.growing--;
-        F.st[k] = PLOWED; plowed++; S.plowedUnder = (S.plowedUnder || 0) + 1;
+        F.st[k] = PLOWED; plowed++; counted++; S.plowedUnder = (S.plowedUnder || 0) + 1;
       } else continue;
       n++; if (changed) changed.push(k);
     }
-    S.bagValue += value; S.eraPlow = (S.eraPlow || 0) + plowed;
-    return {got, value, n, blocked, weak, poor, skipped, spent, cleared, plowed, sowed, gold, goldCoins, noFert, offSeason, snowBlocked, resting};
+    S.bagValue += value; S.eraPlow = (S.eraPlow || 0) + counted;
+    return {got, value, n, blocked, weak, poor, skipped, spent, cleared, plowed, sowed, gold, goldCoins, noFert, offSeason, snowBlocked, resting, water};
   }
   // What removing one rock costs now: bigger rocks and later ages cost more, better tools less.
   // Weather. Each spell lasts 40 to 90 seconds; the season sets the odds. Rain speeds growth and now
@@ -750,14 +753,29 @@ const Game = (() => {
   const DAY_LEN = 180, NIGHT_AT = .72;
   const dayPhase = S => ((S.yearT || 0) % DAY_LEN) / DAY_LEN;
   const isNight = S => dayPhase(S) >= NIGHT_AT;
-  function wash(S, F, x, z, r, changed){
+  // Standing water: while it lasts, nobody can walk into it and nothing can be worked under it.
+  const inPool = (S, x, z) => { const ps = S.pools; if (!ps || !ps.length) return false; for (const p of ps){ const dx = x - p.x, dz = z - p.z; if (dx * dx + dz * dz < p.r * p.r) return true; } return false; };
+  // A step is allowed unless it goes into water or deeper into it (so anyone caught by a flood can wade out).
+  function canStep(S, ox, oz, nx, nz){
+    for (const p of S.pools || []){
+      const dn = Math.hypot(nx - p.x, nz - p.z);
+      if (dn < p.r && dn <= Math.hypot(ox - p.x, oz - p.z)) return false;
+    }
+    return true;
+  }
+  // Water kills what grows there and sweeps the ground back to grass; it all has to be plowed, sown and harvested again.
+  function wash(S, F, x, z, r, changed, hold){
     let lost = 0; const R2 = r * r;
+    (S.pools || (S.pools = [])).push({x, z, r, t:hold || 14});
     for (let j = Math.max(0, Math.floor(z - r)); j <= Math.min(N - 1, Math.ceil(z + r)); j++)
       for (let i = Math.max(0, Math.floor(x - r)); i <= Math.min(N - 1, Math.ceil(x + r)); i++){
         const dx = i + .5 - x, dz = j + .5 - z;
         if (dx * dx + dz * dz > R2) continue;
         const k = j * N + i, st = F.st[k];
-        if (st === GROWING || st === RIPE){ if (st === GROWING) S.growing--; F.st[k] = PLOWED; lost++; if (changed) changed.push(k); }
+        if (F.rock[k]) continue;
+        F.flood[k] = 1; F.rest[k] = 0;
+        if (st === GROWING || st === RIPE){ if (st === GROWING) S.growing--; lost++; }
+        if (st !== WILD){ F.st[k] = WILD; if (changed) changed.push(k); }
       }
     S.lostToWeather = (S.lostToWeather || 0) + lost;
     return lost;
@@ -779,16 +797,17 @@ const Game = (() => {
     else if (s !== 3) S.snow = Math.max(0, (S.snow || 0) - dt / 35);
     const night = isNight(S);
     if (S.wasNight !== night){ if (S.wasNight !== undefined) ev.push({type:night ? 'night' : 'day'}); S.wasNight = night; }
+    if (S.pools && S.pools.length){ for (const p of S.pools) p.t -= dt; S.pools = S.pools.filter(p => p.t > 0); }
     w.left -= dt;
     if (w.kind === 'storm' && !w.flooded && w.dur - w.left >= FLOOD_WARN){
       w.flooded = true;
-      const lost = wash(S, F, w.fx, w.fz, w.fr, changed);
+      const lost = wash(S, F, w.fx, w.fz, w.fr, changed, 30);
       ev.push({type:'flood', x:w.fx, z:w.fz, r:w.fr, lost});
     }
     if (w.kind === 'rain' && rnd() < dt / 32){
       const a = rnd() * Math.PI * 2, d = 6 + rnd() * 26, r = 2 + rnd() * 2.5;
       const x = Math.max(2, Math.min(N - 2, px + Math.cos(a) * d)), z = Math.max(2, Math.min(N - 2, pz + Math.sin(a) * d));
-      const lost = wash(S, F, x, z, r, changed);
+      const lost = wash(S, F, x, z, r, changed, 14);
       if (lost) ev.push({type:'washout', x, z, r, lost});
     }
     // New rocks work up out of the ground now and then, on empty grass, often near you.
@@ -925,6 +944,7 @@ const Game = (() => {
   function plotNeed(S, F, k, job, r){
     const st = F.st[k];
     if (F.rock[k]) return null;
+    if (S.pools && S.pools.length && inPool(S, k % N + .5, Math.floor(k / N) + .5)) return null;
     const snowy = OPTS.seasons && (S.snow || 0) > .5 && r.snow < 2;
     if (st === RIPE && (job === 'all' || job === 'harvest')) return 'harvest';
     if (st === PLOWED && (job === 'all' || job === 'sow') && !snowy && !(F.rest[k] > S.clock)){
@@ -953,14 +973,13 @@ const Game = (() => {
     if (kind === 'harvest'){
       const c = CROPS[F.crop[k]], v = Math.round(harvestValue(c, r, S) * .9);
       F.st[k] = WILD; S.coins += v; S.earned += v; S.harvests++; S.workerEarned = (S.workerEarned || 0) + v;
-      const eh = S.eraHarv || (S.eraHarv = {}); eh[c.id] = (eh[c.id] || 0) + 1;
       if (OPTS.rest){ F.rest[k] = S.clock + c.rest; S.anyRest = true; }
     } else if (kind === 'sow'){
       const c = cropById[S.seed];
       if (OPTS.fert && c.fert) S.fert -= c.fert;
       F.st[k] = GROWING; F.crop[k] = CROPS.indexOf(c); F.ripe[k] = S.clock + growSeconds(c, r); S.growing++; S.sown++;
     } else {
-      F.st[k] = PLOWED; S.eraPlow = (S.eraPlow || 0) + 1;
+      F.st[k] = PLOWED; F.flood[k] = 0;
       if (!F.ever[k]){ F.ever[k] = 1; S.worked++; }
     }
     if (changed) changed.push(k);
@@ -1021,7 +1040,7 @@ const Game = (() => {
       // Night: people walk back to the nearest barn and rest; robots carry on.
       if (night && !w.robot){
         const b = nearestBarn(w.x, w.z).barn, dx = b[0] - w.x, dz = b[1] - w.z, d = Math.hypot(dx, dz);
-        if (d > 6){ const v = Math.min(d, 2.4 * dt); w.x += dx / d * v; w.z += dz / d * v; }
+        if (d > 6){ const v = Math.min(d, 2.4 * dt), nx = w.x + dx / d * v, nz = w.z + dz / d * v; if (canStep(S, w.x, w.z, nx, nz)){ w.x = nx; w.z = nz; } }
         w.tk = -1; w.busy = 'rest'; continue;
       }
       const speed = (w.robot ? 1.25 : 1) * tr.speed;
@@ -1030,7 +1049,11 @@ const Game = (() => {
       if (w.tk < 0){ w.busy = 'idle'; continue; }
       S._claimed.add(w.tk);
       const ti = w.tk % N + .5, tj = Math.floor(w.tk / N) + .5, dx = ti - w.x, dz = tj - w.z, d = Math.hypot(dx, dz);
-      if (d > .45){ const v = Math.min(d, 2.4 * speed * dt); w.x += dx / d * v; w.z += dz / d * v; w.busy = 'walk'; w.act = 0; continue; }
+      if (d > .45){
+        const v = Math.min(d, 2.4 * speed * dt), nx = w.x + dx / d * v, nz = w.z + dz / d * v;
+        if (!canStep(S, w.x, w.z, nx, nz)){ w.tk = -1; w.look = 2; w.busy = 'idle'; continue; }
+        w.x = nx; w.z = nz; w.busy = 'walk'; w.act = 0; continue;
+      }
       w.busy = 'work'; w.act += dt * speed;
       if (w.act >= 1.2){
         const kind = plotNeed(S, F, w.tk, w.job, r);
@@ -1119,7 +1142,7 @@ const Game = (() => {
     const runs = []; let prev = -1, len = 0;
     for (let k = 0; k < N * N; k++){
       const st = F.st[k] === GROWING ? RIPE : F.st[k];
-      const v = st | (st === RIPE ? F.crop[k] << 2 : 0) | (F.ever[k] << 8) | (F.rock[k] << 9);
+      const v = st | (st === RIPE ? F.crop[k] << 2 : 0) | (F.ever[k] << 8) | (F.rock[k] << 9) | (F.flood[k] << 13);
       if (v === prev) len++; else { if (len) runs.push(prev, len); prev = v; len = 1; }
     }
     runs.push(prev, len);
@@ -1153,11 +1176,11 @@ const Game = (() => {
     if (s.eraHarv && typeof s.eraHarv === 'object') for (const id in s.eraHarv) if (cropById[id]) S.eraHarv[id] = Math.max(0, +s.eraHarv[id] || 0);
     let k = 0;
     for (let a = 0; a + 1 < d.field.length && k < N * N; a += 2){
-      const v = d.field[a] | 0, len = d.field[a + 1] | 0, st = v & 3, crop = d.v >= 6 ? (v >> 2) & 63 : (v >> 2) & 15, ever = d.v >= 6 ? (v >> 8) & 1 : (v >> 6) & 1, rk = d.v >= 6 ? (v >> 9) & 15 : (v >> 7) & 7;
+      const v = d.field[a] | 0, len = d.field[a + 1] | 0, st = v & 3, crop = d.v >= 6 ? (v >> 2) & 63 : (v >> 2) & 15, ever = d.v >= 6 ? (v >> 8) & 1 : (v >> 6) & 1, rk = d.v >= 6 ? (v >> 9) & 15 : (v >> 7) & 7, fl = d.v >= 6 ? (v >> 13) & 1 : 0;
       for (let b = 0; b < len && k < N * N; b++, k++){
         F.st[k] = st === GROWING ? RIPE : st;
         F.crop[k] = crop < CROPS.length ? crop : 0;
-        F.ever[k] = ever; if (ever) S.worked++;
+        F.ever[k] = ever; if (ever) S.worked++; F.flood[k] = fl;
         // Saves from before rocks keep the new rocks only where the ground was never touched.
         if (d.v >= 6) F.rock[k] = (rk & 7) > 4 ? 0 : rk;
         else if (d.v === 5) F.rock[k] = rk > 4 || !rk ? 0 : rk | (goldAt(k) ? 8 : 0);
@@ -1186,6 +1209,8 @@ const Game = (() => {
     S.yearT = Math.max(0, +s.yearT || 0);
     S.loc = locById[s.loc] ? s.loc : undefined;
     S.lostToWeather = Math.max(0, +s.lostToWeather || 0);
+    S.pools = Array.isArray(s.pools) ? s.pools.filter(p => p && isFinite(p.x) && isFinite(p.z) && isFinite(p.r) && isFinite(p.t)).slice(0, 12)
+      .map(p => ({x:clamp(+p.x, 0, N), z:clamp(+p.z, 0, N), r:clamp(+p.r, 1, 30), t:clamp(+p.t, 0, 30)})) : [];
     if (s.wx && ['clear', 'rain', 'storm', 'snow'].includes(s.wx.kind) && isFinite(s.wx.left)){
       S.wx = {kind:s.wx.kind, left:Math.min(90, +s.wx.left), dur:+s.wx.dur || 60, flooded:!!s.wx.flooded,
         fx:clamp(+s.wx.fx || N / 2, 0, N), fz:clamp(+s.wx.fz || N / 2, 0, N), fr:clamp(+s.wx.fr || 12, 4, 30)};
@@ -1193,7 +1218,7 @@ const Game = (() => {
     return {S, F};
   }
 
-  return {N, WILD, PLOWED, GROWING, RIPE, TRAITS, MAX_WORKERS, ROBOT_ERA, workerWage, hireFee, candidate, hire, fire, setJob, encourage, bonus, bonusCost, workersStep, DAY_LEN, NIGHT_AT, dayPhase, isNight, ART, artById, ART_DONE_AT, artFee, artReward, HINTS, hintCost, startArt, buyHint, artBlock, artProgress, artCheck, OPTS, SEASONS, SEASON_LEN, LOCS, locById, locMult, season, inSeason, fertPrice, buyFert, moveCost, setLoc, goldAt, goldValue, weatherStep, wash, FLOOD_WARN, MODES, REQS, reqStatus, reqMet, ROCK_NAMES, rockFee, BARNS, SELL_RANGE, nearestBarn, canSell, sell, ERAS, CROPS, TRACKS, M, cropById, trackById, cellsIn, offsets, reprice,
+  return {N, WILD, PLOWED, GROWING, RIPE, inPool, canStep, TRAITS, MAX_WORKERS, ROBOT_ERA, workerWage, hireFee, candidate, hire, fire, setJob, encourage, bonus, bonusCost, workersStep, DAY_LEN, NIGHT_AT, dayPhase, isNight, ART, artById, ART_DONE_AT, artFee, artReward, HINTS, hintCost, startArt, buyHint, artBlock, artProgress, artCheck, OPTS, SEASONS, SEASON_LEN, LOCS, locById, locMult, season, inSeason, fertPrice, buyFert, moveCost, setLoc, goldAt, goldValue, weatherStep, wash, FLOOD_WARN, MODES, REQS, reqStatus, reqMet, ROCK_NAMES, rockFee, BARNS, SELL_RANGE, nearestBarn, canSell, sell, ERAS, CROPS, TRACKS, M, cropById, trackById, cellsIn, offsets, reprice,
     fresh, freshField, rates, harvestValue, growSeconds, swing, ripen, nextTier, buy, nextEra, advance, setSeed, pack, unpack};
 })();
 
@@ -2389,6 +2414,7 @@ const Game = (() => {
     clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2800);
   }
   function rockNews(res){
+    if (res.water && !res.n) toast('water', 'Water covers that ground. Nothing can be worked there until it drains.', 6000);
     if (res.snowBlocked && !res.n){
       const st = G.TRACKS.find(t => t.id === 'snow').tiers[1];
       toast('snowtool', 'Snow covers the ground. You need a snow tool to plow or sow in it' + (S.lv.snow ? '.' : ': a ' + st.name.toLowerCase() + ' from the shop.'), 7000);
@@ -2641,7 +2667,7 @@ const Game = (() => {
       else if (e.kind === 'snow') toast('snow', 'Snow is falling. Only winter crops keep growing.', 30000);
     } else if (e.type === 'flood'){
       addPool(e.x, e.z, e.r, 22); sound('flood');
-      toast('flood', 'Flood! ' + (e.lost ? fmt(e.lost) + ' crops were washed away.' : 'Nothing was growing there.'), 1000);
+      toast('flood', 'Flood! ' + (e.lost ? fmt(e.lost) + ' crops died.' : 'Nothing was growing there.') + ' Keep out until the water drains; then plow, sow and harvest again. Replowing flooded ground does not count toward age tasks.', 1000);
     } else if (e.type === 'washout'){
       addPool(e.x, e.z, e.r, 6);
       toast('wash', 'Rain washed away ' + fmt(e.lost) + ' crops nearby.', 8000);
@@ -3035,8 +3061,9 @@ const Game = (() => {
       if (len > 1){ f /= len; s /= len; }
       if (len > .05){
         const v = R.legs * dt, ox = S.px, oz = S.pz;
-        S.px = Math.max(.5, Math.min(N - .5, S.px + (-sin * f + cos * s) * v));
-        S.pz = Math.max(.5, Math.min(N - .5, S.pz + (-cos * f - sin * s) * v));
+        const nx = Math.max(.5, Math.min(N - .5, S.px + (-sin * f + cos * s) * v)), nz = Math.max(.5, Math.min(N - .5, S.pz + (-cos * f - sin * s) * v));
+        if (G.canStep(S, ox, oz, nx, nz)){ S.px = nx; S.pz = nz; }
+        else toast('water', 'Flood water blocks the way. It drains in a little while.', 6000);
         moved = (S.px - ox) * -sin + (S.pz - oz) * -cos;
         if (Math.abs(moved) < 1e-4) moved = Math.hypot(S.px - ox, S.pz - oz);
       }
@@ -3106,6 +3133,7 @@ const Game = (() => {
     artMarkers();
     { const sea = G.season(S); if (sea === 3 && !S.snow) S.snow = S.wx && S.wx.kind === 'snow' ? .9 : .6; if (sea === 2) autumn = 1; }
     syncWorkers(0);
+    for (const p of S.pools || []) addPool(p.x, p.z, p.r, Math.max(0, p.t - 8));
     requestAnimationFrame(frame);
     document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
     window.addEventListener('pagehide', save);

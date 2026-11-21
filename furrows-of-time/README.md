@@ -11,7 +11,7 @@ A first-person farming game in the browser. You start in the year 300 with bare 
 - Spend coins in the shop on upgrades: tool reach, swing speed, walking speed, harvest value, growth speed, bag size and rock tools.
 - About 1,070 rocks lie in clusters across the field: stones, rocks, big rocks and boulders. Nothing can be sown on a rock. To clear one, switch to Plow mode with a rock tool strong enough for its size; each rock costs coins to remove. Rock tools run from a crowbar in 300 to a matter dissolver in 3000, with a new one and a new price in every age, and later tools make each rock cheaper to clear.
 - When you have enough coins, buy your way into the next age. Each age brings new crops, new tools and a new look.
-- Some ages also set work you must finish during that age before you can leave it: plots plowed, and set amounts of particular crops harvested. The age panel counts finished tasks, and the shop shows each one with a progress bar.
+- Some ages also set work you must finish during that age before you can leave it: plots plowed, and set amounts of particular crops harvested. Only work you do yourself counts; your workers' plowing and harvests do not. The age panel counts finished tasks, and the shop shows each one with a progress bar.
 
 | Leaving | Also needed |
 |---|---|
@@ -29,7 +29,7 @@ The other ages (300, 1940 and 2100) only ask for coins.
 ## Seasons and weather
 
 - The year turns through spring, summer, autumn and winter, 4 minutes each. Every crop can only be sown in certain seasons (wheat in spring, autumn or winter, tomato and cotton only in summer). In winter, crops that are not winter-hardy stop growing until spring. The seeds list greys out what cannot be sown now.
-- Weather changes every minute or so. Rain makes crops grow 1.5 times faster, but now and then washes away a small patch. A storm marks an area with an orange ring, and 18 seconds later floods it, washing away every crop there. Winter brings snow, which covers the land.
+- Weather changes every minute or so. Rain makes crops grow 1.5 times faster, but now and then washes out a small patch. A storm marks an area with an orange ring, and 18 seconds later floods it. Crops under the water die and the ground goes back to grass, so it must be plowed, sown and harvested again. While the water stands, nobody can walk into it and nothing can be worked there; a flood drains after about 30 seconds, a washout after about 14. Replowing flooded ground does not count toward an age's plowing task. Winter brings snow, which covers the land.
 - Autumn turns the trees orange, and snow turns the field white.
 
 ## Fertilizer
