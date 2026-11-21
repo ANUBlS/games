@@ -157,6 +157,7 @@ svg{display:block}
 .joy i{position:absolute; left:50%; top:50%; width:48px; height:48px; margin:-24px 0 0 -24px; border-radius:50%; background:rgba(255,255,255,.85); box-shadow:0 0 0 2px rgba(0,0,0,.25)}
 .joy.rest{left:76px; bottom:20px; top:auto; margin:0 0 0 -56px; opacity:.55}
 
+.toast{position:absolute; right:14px; bottom:146px; max-width:min(78%,320px); padding:7px 11px; font-size:.86rem; pointer-events:none}
 .modes{position:absolute; right:14px; bottom:94px; display:flex; gap:4px; padding:4px}
 .modes button{border:0; border-radius:calc(var(--radius) + 2px); background:transparent; color:var(--ink); font-weight:700; font-size:.86rem; min-height:38px; padding:0 10px; cursor:pointer}
 .modes button[aria-pressed="true"]{background:var(--accent); color:var(--on-accent)}
@@ -307,9 +308,10 @@ svg{display:block}
   <div class="gains" id="gains" aria-hidden="true"></div>
   <div class="tip panel" id="tip"></div>
   <div class="joy rest" id="joy" aria-hidden="true"><i></i></div>
+  <div class="toast panel" id="toast" hidden></div>
   <div class="modes panel" id="modes" role="group" aria-label="What the tool does">
     <button type="button" data-mode="all" aria-pressed="true">All</button>
-    <button type="button" data-mode="plow" aria-pressed="false" title="Plows grass and plows crops under">Plow</button>
+    <button type="button" data-mode="plow" aria-pressed="false" title="Plows grass, plows crops under and clears rocks">Plow</button>
     <button type="button" data-mode="sow" aria-pressed="false">Sow</button>
     <button type="button" data-mode="harvest" aria-pressed="false">Harvest</button>
   </div>
@@ -617,10 +619,10 @@ svg{display:block}
   const noise = new Float32Array(N * N);
   { let s = 12345; for (let k = 0; k < N * N; k++){ s = (s * 1664525 + 1013904223) >>> 0; noise[k] = .88 + (s / 4294967296) * .2; } }
   const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
-  const C_GRASS = [92, 146, 58], C_SOIL = [104, 68, 40], C_SOWN = [90, 92, 46];
+  const C_GRASS = [92, 146, 58], C_SOIL = [104, 68, 40], C_SOWN = [90, 92, 46], C_ROCK = [138, 134, 126];
   const C_CROP = G.CROPS.map(c => hex(c.color));
   function paintCell(k){
-    const st = F.st[k], c = st === G.WILD ? C_GRASS : st === G.PLOWED ? C_SOIL : st === G.GROWING ? C_SOWN : C_CROP[F.crop[k]];
+    const st = F.st[k], c = F.rock[k] ? C_ROCK : st === G.WILD ? C_GRASS : st === G.PLOWED ? C_SOIL : st === G.GROWING ? C_SOWN : C_CROP[F.crop[k]];
     const i = k % N, j = (k / N) | 0, o = ((N - 1 - j) * N + i) * 4, n = noise[k];
     px[o] = Math.min(255, c[0] * n); px[o + 1] = Math.min(255, c[1] * n); px[o + 2] = Math.min(255, c[2] * n);
     px[o + 3] = st === G.WILD ? 0 : st === G.PLOWED ? 85 : st === G.GROWING ? 170 : 255;
@@ -766,6 +768,22 @@ svg{display:block}
   grass.receiveShadow = true; grass.count = 0; grass.frustumCulled = false;
   scene.add(grass);
   let grassOn = true, grassNear = 20;
+  // Rocks: lumpy stones in four sizes, drawn near you; farther off they show as grey on the ground.
+  const rockGeo = (() => {
+    const g = new THREE.SphereGeometry(1, 12, 9), pa = g.attributes.position, v = new THREE.Vector3();
+    for (let a = 0; a < pa.count; a++){
+      v.fromBufferAttribute(pa, a);
+      const w = 1 + .22 * Math.sin(v.x * 3.1 + v.z * 1.7) * Math.cos(v.y * 2.6 - v.x * 1.3) + .1 * Math.sin(v.z * 7.3 + v.y * 5.1);
+      pa.setXYZ(a, v.x * w, Math.max(v.y * w * .72, -.25), v.z * w);
+    }
+    g.computeVertexNormals(); return g;
+  })();
+  const RCAP = 900, ROCK_SIZE = [0, .22, .38, .58, .95];
+  const rocks = new THREE.InstancedMesh(rockGeo, stdMat({color:0xffffff, roughness:.92}), RCAP);
+  const rockTint = [0x8a8680, 0x7a766f, 0x9a948a, 0x6f6c68].map(LIN);
+  rocks.setColorAt(0, rockTint[0]);
+  rocks.count = 0; rocks.frustumCulled = false; rocks.castShadow = true; rocks.receiveShadow = true;
+  scene.add(rocks);
 
   /* ---------- straw: the look of a haystack game ---------- */
   // One thin three-sided strand, 1 m long along x. Everything made of hay is built from it.
@@ -879,7 +897,7 @@ svg{display:block}
   const cropColor = G.CROPS.map(c => LIN(c.color)), stemColor = G.CROPS.map(c => LIN(c.stem));
   const dummy = new THREE.Object3D();
   function updateCrops(){
-    const near = Math.ceil(Math.max(14, R.tool + 7)), gn = grassOn ? grassNear : 0, reach = Math.max(near, gn); let n = 0, gc = 0, lc = 0;
+    const near = Math.ceil(Math.max(14, R.tool + 7)), gn = grassOn ? grassNear : 0, reach = Math.max(near, gn, 22); let n = 0, gc = 0, lc = 0, rc = 0;
     const ci = Math.floor((tci + S.px) / 2), cj = Math.floor((tcj + S.pz) / 2);
     for (let dj = -reach; dj <= reach; dj++) for (let di = -reach; di <= reach; di++){
       const d2 = di * di + dj * dj;
@@ -887,6 +905,15 @@ svg{display:block}
       const i = ci + di, j = cj + dj;
       if (i < 0 || j < 0 || i >= N || j >= N) continue;
       const k = j * N + i, st = F.st[k];
+      if (F.rock[k]){
+        if (rc < RCAP){
+          const sz = ROCK_SIZE[F.rock[k]] * (.85 + (noise[k] - .88) * 2);
+          dummy.position.set(i + .5 + (noise[k] - .98) * 2, sz * .18, j + .5 - (noise[k] - .98) * 2);
+          dummy.rotation.set(0, noise[k] * 90, 0); dummy.scale.set(sz, sz, sz * (.8 + (noise[k] - .88) * 2)); dummy.updateMatrix();
+          rocks.setMatrixAt(rc, dummy.matrix); rocks.setColorAt(rc, rockTint[(noise[k] * 131 | 0) % 4]); rc++;
+        }
+        continue;
+      }
       if (st === G.WILD){
         if (d2 > gn * gn || gc >= GCAP) continue;
         const fade = Math.min(1, (gn - Math.sqrt(d2)) / 4), sc = (.65 + noise[k] * .5) * Math.max(.05, fade);
@@ -915,6 +942,7 @@ svg{display:block}
     }
     stems.count = heads.count = n;
     grass.count = gc; grass.instanceMatrix.needsUpdate = true; if (grass.instanceColor) grass.instanceColor.needsUpdate = true;
+    rocks.count = rc; rocks.instanceMatrix.needsUpdate = true; if (rocks.instanceColor) rocks.instanceColor.needsUpdate = true;
     loose.count = lc; loose.instanceMatrix.needsUpdate = true; if (loose.instanceColor) loose.instanceColor.needsUpdate = true;
     stems.instanceMatrix.needsUpdate = heads.instanceMatrix.needsUpdate = true;
     stems.instanceColor.needsUpdate = heads.instanceColor.needsUpdate = true;
@@ -1231,9 +1259,10 @@ svg{display:block}
       '<span><b>' + c.name + '</b><span>' + fmt(G.harvestValue(c, R)) + ' coins · ' + Math.round(G.growSeconds(c, R)) + 's</span></span></button>').join('');
     $('shop').innerHTML = G.TRACKS.map(t => {
       const cur = t.tiers[S.lv[t.id]], nx = G.nextTier(S, t.id);
-      if (!nx) return '<div class="tool"><div><small>' + t.label + '</small><b>' + cur.name + '</b><p>' + t.say(cur.v) + '. The best there is.</p></div></div>';
+      if (!nx) return '<div class="tool"><div><small>' + t.label + '</small><b>' + cur.name + '</b><p>' + t.say(cur.v) + '. The best there is.' + (t.id === 'rock' ? ' Each rock costs ' + fmt(G.rockFee(S, 1)) + ' to ' + fmt(G.rockFee(S, 4)) + ' coins to clear.' : '') + '</p></div></div>';
       const locked = nx.era > era;
-      return '<div class="tool"><div><small>' + t.label + ' · now ' + cur.name + '</small><b>' + nx.name + '</b><p>' + t.say(nx.v) + ' (now ' + t.say(cur.v).replace(/^(harvests pay|crops grow|holds) /, '') + ')</p></div>' +
+      const fee = t.id === 'rock' && cur.v ? ' Each rock costs ' + fmt(G.rockFee(S, 1)) + ' to ' + fmt(G.rockFee(S, 4)) + ' coins to clear in Plow mode.' : t.id === 'rock' ? ' Rocks block sowing until cleared in Plow mode.' : '';
+      return '<div class="tool"><div><small>' + t.label + ' · now ' + cur.name + '</small><b>' + nx.name + '</b><p>' + t.say(nx.v) + ' (now ' + t.say(cur.v).replace(/^(harvests pay|crops grow|holds|clears) /, '') + ').' + fee + '</p></div>' +
         '<button type="button" class="btn" id="buy-' + t.id + '" data-buy="' + t.id + '" data-cost="' + (locked ? -1 : nx.cost) + '"' +
         ' aria-label="' + (locked ? nx.name + ' arrives in ' + G.ERAS[nx.era - 1].year : 'Buy ' + nx.name + ' for ' + nx.cost + ' coins') + '">' +
         (locked ? 'In ' + G.ERAS[nx.era - 1].year : coin + '<span>' + fmt(nx.cost) + '</span>') + '</button></div>';
@@ -1364,6 +1393,24 @@ svg{display:block}
     if (tip !== shownTip){ shownTip = tip; $('tip').innerHTML = tip; $('tip').hidden = !tip; }
   }
   let gainAcc = 0, gainAt = 0;
+  // Short notes about rocks: what is needed, and what clearing cost.
+  let toastT = 0, toastAt = {};
+  function toast(key, text, every){
+    const now = performance.now();
+    if (toastAt[key] && now - toastAt[key] < (every || 6000)) return;
+    toastAt[key] = now;
+    const t = $('toast'); t.textContent = text; t.hidden = false;
+    clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2800);
+  }
+  function rockNews(res){
+    if (res.cleared) popGain((res.cleared > 1 ? res.cleared + ' rocks cleared · ' : 'Rock cleared · ') + '-' + fmt(res.spent), 'bagged');
+    if (res.weak){
+      let need = null;
+      for (const t of G.TRACKS.find(t => t.id === 'rock').tiers) if (t.v >= res.weak){ need = t; break; }
+      toast('weak', 'This ' + G.ROCK_NAMES[res.weak] + ' needs a stronger rock tool' + (need ? ': ' + need.name + (need.era > S.era ? ', from the year ' + G.ERAS[need.era - 1].year : ', in the shop') : '') + '.');
+    } else if (res.poor) toast('poor', 'Clearing this rock costs ' + fmt(res.poor) + ' coins. Empty your bag at a barn first.');
+    else if (res.skipped && !res.n) toast('skip', 'Rocks block sowing. Switch to Plow mode to clear them with a rock tool.', 12000);
+  }
   function popGain(text, cls){
     const s = document.createElement('span');
     s.textContent = text; if (cls) s.className = cls;
@@ -1477,6 +1524,7 @@ svg{display:block}
       if (S.work && !busy){
         const res = G.swing(S, F, tci, tcj, R, changed);
         if (res.n){ swingT -= 1; gainAcc += res.got; kick = 1; burst(tci, tcj, res); } else swingT = 1;
+        rockNews(res);
       } else swingT = 1;
     }
     ripenT += dt;
