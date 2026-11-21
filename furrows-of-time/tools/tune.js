@@ -20,16 +20,16 @@ function runEra(o,limitMin){ const S=o.S,era=S.era,t0=o.t; if(!o.path)lap(o);
       if(res.blocked||S.bag>=r.bag){ const nb=G.nearestBarn(ci,cj); step(o,2*Math.max(0,nb.dist-G.SELL_RANGE)/r.legs+1); G.sell(S); }}
     o.k++; step(o,o.W/r.legs); if(o.k>=o.path.length){G.setSeed(S,bestSeed(S));lap(o)}
     const n=G.nextEra(S);
-    const allBought=G.TRACKS.filter(t=>t.id!=='rock').every(tr=>{const nt=G.nextTier(S,tr.id);return !nt||nt.era>S.era});
+    const allBought=G.TRACKS.filter(t=>t.id!=='rock'&&t.id!=='snow').every(tr=>{const nt=G.nextTier(S,tr.id);return !nt||nt.era>S.era});
     if(n&&allBought&&S.coins>=n.cost){G.advance(S);G.setSeed(S,bestSeed(S));lap(o);return (o.t-t0)/60}
-    let best=null; for(const tr of G.TRACKS.filter(t=>t.id!=='rock')){const nt=G.nextTier(S,tr.id); if(nt&&nt.era<=S.era&&(!best||nt.cost<best.c))best={c:nt.cost,id:tr.id}}
+    let best=null; for(const tr of G.TRACKS.filter(t=>t.id!=='rock'&&t.id!=='snow')){const nt=G.nextTier(S,tr.id); if(nt&&nt.era<=S.era&&(!best||nt.cost<best.c))best={c:nt.cost,id:tr.id}}
     if(best&&best.c<=S.coins){G.buy(S,best.id);lap(o)}
     if(!n&&!best)return (o.t-t0)/60;
   }
   return Infinity }
 // The tuner prices ages by coins alone; age requirements are left out of the simulation.
 for (const k in G.REQS) delete G.REQS[k];
-G.OPTS.seasons = false; G.OPTS.fert = false;
+G.OPTS.seasons = false; G.OPTS.fert = false; G.OPTS.rest = false;
 const M=G.M.slice(); let base=newSim(); const out=[];
 for(let e=0;e<12;e++){
   let lo=1e-2,hi=1e18;

@@ -40,6 +40,24 @@ From 1850 on, many crops need fertilizer to sow: cotton and corn 1 unit per plot
 
 When you start, pick where your farm is: America, Russia, Azerbaijan, China, India, Brazil, France or Egypt. Each pays more for the crops it is known for (corn in America, wheat in Russia, cotton in Azerbaijan and Egypt, and so on). You can move later, for a fee.
 
+## Workers
+
+Hire up to nine workers in the shop. Each has a trait: hard workers move 1.5 times as fast, steady ones at normal pace, slow ones at 0.6, and idlers now and then stop working. Give each a job (All, Plow, Sow or Harvest); they walk to the nearest plot that needs it, use your seed and fertilizer, and bring their harvests straight to your coins. Wages are paid every minute and differ from worker to worker; if you cannot pay, everyone stops until you can.
+
+When a worker stops, **Encourage** them (free, works about two times in three) or pay a **Bonus** (always works). People sleep at night, can fall ill in rain, snow or winter (and may die of it in the cold), can be hurt by tools or lightning, and sometimes quarrel. From 2026 on, robots take their places: they work day and night and never fall ill, but lightning can knock them out for a minute.
+
+## Day and night
+
+A day lasts three minutes, about two of them daylight. The sun climbs and sets, nights are dark with stars, and you carry a lantern.
+
+## Ground and snow
+
+After a harvest the ground rests before it can be sown again; you can plow it straight away. The rest is about half the crop's growing time. Rain leaves the ground wet and shiny, with drops splashing around you. Snow settles on everything, and snowy ground cannot be plowed or sown without a snow tool from the shop: a snow shovel (300) for you, a snow plough (1850) for you and your workers, and heated fields (2026), which also keep every crop growing through winter.
+
+## Cheat codes
+
+Type these in the box at the bottom of the shop: MONEYBAGS (coins for the next age), NEXTAGE (go straight to the next age), HARVESTMOON (ripen every crop), FERTILE (10,000 fertilizer), SUNSHINE, STORMY, SNOWFALL, NEXTSEASON, DAYBREAK, NIGHTFALL, FULLCREW (nine hard workers, free), CLEARROCKS, QUICKSALE (sell your bag where you stand).
+
 ## Field art
 
 The shop sells field-art commissions: Alien, Person, Flying saucer, Star, Heart and Rocket. Pay to start one where you stand; a red flag marks the middle. Grow the figure in crops around the flag, north at the top of the map. Each square of the figure is one block of plots, bigger with bigger tools. The figure counts as done when 90% of its squares are right. A commission pays five times its price, or ten times if you finish with no hints. Hints: **Corner stakes** mark the figure's corners, and **Chalk outline** draws every square on the ground and on the map.

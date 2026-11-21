@@ -66,12 +66,13 @@ const Game = (() => {
     CROPS.push({id, name, era, grow:Math.round(main.grow * (quick ? .6 : 1.7)), value:Math.max(1, Math.round(main.value * (quick ? .55 : 1.65))), color, stem, h, extra:true});
     ICON_SHAPE[id] = shape;
   }
-  for (const c of CROPS) c.shape = ICON_SHAPE[c.id];
+  for (const c of CROPS){ c.shape = ICON_SHAPE[c.id]; c.rest = Math.max(4, Math.round(c.grow * .45)); }
   const cellsIn = r => { let n = 0; const m = Math.ceil(r); for (let a = -m; a <= m; a++) for (let b = -m; b <= m; b++) if (a*a + b*b <= r*r) n++; return n; };
   const x = v => '×' + String(v);
   const T = (name, era, v, w, rig) => ({name, era, v, w, rig, cost:0});
   const R = (name, era, v, w, fk) => ({name, era, v, w, fk, cost:0});
   const ROCK_NAMES = ['', 'stone', 'rock', 'big rock', 'boulder'];
+  const SNOW_SAY = ['you cannot plow or sow in snow', 'you can plow and sow in snow', 'you and your workers can plow and sow in snow', 'crops keep growing all winter, and snow stops no one'];
   const ROCK_REACH = ['', 'stones', 'stones and rocks', 'stones, rocks and big rocks', 'every rock, boulders too'];
   // Six upgrade tracks. Tier 0 is what you start with. v is the value the track gives,
   // w is how dear the tier is within its age, rig is the 3D model the tool shows.
@@ -131,7 +132,13 @@ const Game = (() => {
       R('Sonic drill',        9, 4, 1.6, .3),
       R('Laser cutter',       10, 4, 1.6, .2),
       R('Gravity lifter',     11, 4, 1.6, .12),
-      R('Matter dissolver',   12, 4, 1.6, .05)]}
+      R('Matter dissolver',   12, 4, 1.6, .05)]},
+    // Snow tools: without one, snowy ground cannot be plowed or sown.
+    {id:'snow', label:'Snow tool', say:v => SNOW_SAY[v], tiers:[
+      T('No snow tool',  1, 0, 0),
+      T('Snow shovel',   1, 1, 1.2),
+      T('Snow plough',   5, 2, 1.2),
+      T('Heated fields', 9, 3, 1.2)]}
   ];
   // Price level of each age, tuned by simulation so that a fast player needs about three hours.
   const M = [/*M*/146,1640,11200,135000,1380000,12500000,153000000,1440000000,12600000000,138000000000,2100000000000,30800000000000/*M*/];
@@ -161,7 +168,7 @@ const Game = (() => {
   for (const c of CROPS){ const x = CROP_EXTRA[c.id]; c.seasons = x[0]; c.fert = x[1]; c.hardy = x[0].includes(3); }
   const SEASONS = ['Spring', 'Summer', 'Autumn', 'Winter'], SEASON_LEN = 240;
   // Switches for the price tuner, which simulates a player without seasons or fertilizer.
-  const OPTS = {seasons:true, fert:true};
+  const OPTS = {seasons:true, fert:true, rest:true};
   // Where the farm is changes what each crop sells for.
   const LOCS = [
     {id:'america',    name:'America',    mult:{corn:1.6, soybean:1.4, pumpkin:1.4, wheat:1.1, blueberry:1.3, sunflower:.9}},
@@ -207,7 +214,7 @@ const Game = (() => {
     return rock;
   }
   function freshField(){
-    return {st:new Uint8Array(N * N), crop:new Uint8Array(N * N), ever:new Uint8Array(N * N), ripe:new Float64Array(N * N), rock:placeRocks(new Uint8Array(N * N))};
+    return {st:new Uint8Array(N * N), crop:new Uint8Array(N * N), ever:new Uint8Array(N * N), ripe:new Float64Array(N * N), rest:new Float64Array(N * N), rock:placeRocks(new Uint8Array(N * N))};
   }
   function rates(S){
     const r = {};
@@ -254,6 +261,8 @@ const Game = (() => {
     let gold = 0, goldCoins = 0, noFert = 0, offSeason = 0;
     const seedCrop = CROPS[seedIdx], fertNeed = OPTS.fert ? seedCrop.fert : 0, seasonOk = inSeason(S, seedCrop);
     const eh = S.eraHarv || (S.eraHarv = {});
+    const snowy = OPTS.seasons && (S.snow || 0) > .5 && !r.snow;
+    let snowBlocked = 0, resting = 0;
     for (let o = 0; o < off.length; o += 2){
       const i = ci + off[o], j = cj + off[o + 1];
       if (i < 0 || j < 0 || i >= N || j >= N) continue;
@@ -270,9 +279,12 @@ const Game = (() => {
         continue;
       }
       if (st === WILD && doPlow){
+        if (snowy){ snowBlocked++; continue; }
         F.st[k] = PLOWED; plowed++;
         if (!F.ever[k]){ F.ever[k] = 1; S.worked++; }
       } else if (st === PLOWED && doSow){
+        if (snowy){ snowBlocked++; continue; }
+        if (F.rest[k] > S.clock){ resting = Math.max(resting, F.rest[k] - S.clock); continue; }
         if (!seasonOk){ offSeason++; continue; }
         if (fertNeed){ if ((S.fert || 0) < fertNeed){ noFert++; continue; } S.fert -= fertNeed; }
         sowed++; F.st[k] = GROWING; F.crop[k] = seedIdx; F.ripe[k] = ripeAt; S.growing++; S.sown++;
@@ -280,6 +292,7 @@ const Game = (() => {
         if (S.bag >= r.bag){ blocked++; continue; }
         const cid = CROPS[F.crop[k]].id; eh[cid] = (eh[cid] || 0) + 1;
         F.st[k] = WILD; S.bag++; got++; value += harvestValue(CROPS[F.crop[k]], r, S); S.harvests++;
+        if (OPTS.rest){ F.rest[k] = S.clock + CROPS[F.crop[k]].rest; S.anyRest = true; }
       } else if (m === 'plow' && (st === GROWING || st === RIPE)){
         // Plow mode turns crops under: growing or ripe, they go back to bare plowed soil and are lost.
         if (st === GROWING) S.growing--;
@@ -288,7 +301,7 @@ const Game = (() => {
       n++; if (changed) changed.push(k);
     }
     S.bagValue += value; S.eraPlow = (S.eraPlow || 0) + plowed;
-    return {got, value, n, blocked, weak, poor, skipped, spent, cleared, plowed, sowed, gold, goldCoins, noFert, offSeason};
+    return {got, value, n, blocked, weak, poor, skipped, spent, cleared, plowed, sowed, gold, goldCoins, noFert, offSeason, snowBlocked, resting};
   }
   // What removing one rock costs now: bigger rocks and later ages cost more, better tools less.
   // Weather. Each spell lasts 40 to 90 seconds; the season sets the odds. Rain speeds growth and now
@@ -299,6 +312,10 @@ const Game = (() => {
     {clear:.45, rain:.42, storm:.13, snow:0},
     {clear:.32, rain:.08, storm:0,   snow:.6}];
   const FLOOD_WARN = 18;
+  // A day lasts three minutes: about two of daylight, then night until dawn.
+  const DAY_LEN = 180, NIGHT_AT = .72;
+  const dayPhase = S => ((S.yearT || 0) % DAY_LEN) / DAY_LEN;
+  const isNight = S => dayPhase(S) >= NIGHT_AT;
   function wash(S, F, x, z, r, changed){
     let lost = 0; const R2 = r * r;
     for (let j = Math.max(0, Math.floor(z - r)); j <= Math.min(N - 1, Math.ceil(z + r)); j++)
@@ -323,6 +340,11 @@ const Game = (() => {
       if (s === 3 && w.kind !== 'snow' && rnd() < .7){ w.left = 0; }
       if (s !== 3 && w.kind === 'snow') w.left = 0;
     }
+    // Snow builds up while it snows in winter and melts once winter is over.
+    if (s === 3 && w.kind === 'snow') S.snow = Math.min(1, (S.snow || 0) + dt / 25);
+    else if (s !== 3) S.snow = Math.max(0, (S.snow || 0) - dt / 35);
+    const night = isNight(S);
+    if (S.wasNight !== night){ if (S.wasNight !== undefined) ev.push({type:night ? 'night' : 'day'}); S.wasNight = night; }
     w.left -= dt;
     if (w.kind === 'storm' && !w.flooded && w.dur - w.left >= FLOOD_WARN){
       w.flooded = true;
@@ -418,6 +440,173 @@ const Game = (() => {
     S.coins += reward; S.earned += reward; S.artDone = (S.artDone || 0) + 1; S.art = null;
     return {name:a.name, reward, doubled};
   }
+  // Workers. Up to nine; each has a trait, a wage and a job. They walk to the nearest plot that needs
+  // their job, work it, and bring harvests straight to the barn. Human workers sleep at night and can
+  // fall sick in bad weather, get hurt or quarrel; from 2026 robots take their places.
+  const TRAITS = {
+    hard:   {label:'Hard worker', speed:1.5, slack:.01, pay:1.35},
+    steady: {label:'Steady',      speed:1,   slack:.03, pay:1},
+    slow:   {label:'Slow',        speed:.6,  slack:.04, pay:.75},
+    idler:  {label:'Idler',       speed:.9,  slack:.3,  pay:.85}
+  };
+  const WORKER_NAMES = ['Aydan', 'Murad', 'Leyla', 'Tural', 'Nigar', 'Elvin', 'Sabina', 'Rashad', 'Gunay', 'Orkhan', 'Kamala', 'Farid',
+    'Hugo', 'Mila', 'Ivan', 'Rosa', 'Kenji', 'Amara', 'Lucas', 'Zara', 'Omar', 'Ines', 'Pavel', 'Nadia'];
+  const MAX_WORKERS = 9, ROBOT_ERA = 9;
+  const workerWage = (S, w) => nice(M[S.era - 1] * .012 * w.payK * (w.robot ? .8 : 1));
+  const hireFee = S => nice(M[S.era - 1] * .5);
+  function candidate(S, rnd){
+    if (S.cand && !!S.cand.robot === (S.era >= ROBOT_ERA)) return S.cand;
+    rnd = rnd || Math.random;
+    const robot = S.era >= ROBOT_ERA, q = rnd();
+    const trait = robot ? (q < .4 ? 'hard' : 'steady') : q < .2 ? 'hard' : q < .6 ? 'steady' : q < .8 ? 'slow' : 'idler';
+    const name = robot ? 'Unit ' + (100 + Math.floor(rnd() * 900)) : WORKER_NAMES[Math.floor(rnd() * WORKER_NAMES.length)];
+    return S.cand = {name, trait, robot, payK:+(TRAITS[trait].pay * (.8 + rnd() * .4)).toFixed(2)};
+  }
+  function hire(S, px, pz, rnd){
+    S.workers = S.workers || [];
+    const fee = hireFee(S), c = candidate(S, rnd);
+    if (S.workers.length >= MAX_WORKERS || S.coins < fee) return null;
+    S.coins -= fee; S.wid = (S.wid || 0) + 1;
+    const w = {id:S.wid, name:c.name, trait:c.trait, payK:c.payK, robot:c.robot, job:'all', state:'work', t:0,
+      x:clamp(px + (Math.random() - .5) * 3, .5, N - .5), z:clamp(pz + (Math.random() - .5) * 3, .5, N - .5), hx:px, hz:pz, act:0, tk:-1, did:0};
+    S.workers.push(w); S.cand = null;
+    return w;
+  }
+  const wById = (S, id) => (S.workers || []).find(w => w.id === id);
+  function fire(S, id){ const n = (S.workers || []).length; S.workers = (S.workers || []).filter(w => w.id !== id); return S.workers.length < n; }
+  function setJob(S, id, job){ const w = wById(S, id); if (!w || !MODES.includes(job)) return false; w.job = job; w.tk = -1; return true; }
+  const bonusCost = (S, w) => workerWage(S, w) * 3;
+  function encourage(S, id, rnd){
+    const w = wById(S, id); if (!w || w.state !== 'slack') return null;
+    if ((w.enc || 0) > 0) return 'wait';
+    if ((rnd || Math.random)() < .65){ w.state = 'work'; w.calm = 60; return 'ok'; }
+    w.enc = 8; return 'no';
+  }
+  function bonus(S, id){
+    const w = wById(S, id); if (!w || (w.state !== 'slack' && w.state !== 'strike')) return false;
+    const c = bonusCost(S, w); if (S.coins < c) return false;
+    S.coins -= c; S.wagesPaid = (S.wagesPaid || 0) + c; w.state = 'work'; w.calm = 180; return true;
+  }
+  // What a plot needs from a worker with this job, or null.
+  function plotNeed(S, F, k, job, r){
+    const st = F.st[k];
+    if (F.rock[k]) return null;
+    const snowy = OPTS.seasons && (S.snow || 0) > .5 && r.snow < 2;
+    if (st === RIPE && (job === 'all' || job === 'harvest')) return 'harvest';
+    if (st === PLOWED && (job === 'all' || job === 'sow') && !snowy && !(F.rest[k] > S.clock)){
+      const c = cropById[S.seed];
+      if (inSeason(S, c) && (!OPTS.fert || !c.fert || (S.fert || 0) >= c.fert)) return 'sow';
+    }
+    if (st === WILD && (job === 'all' || job === 'plow') && !snowy) return 'plow';
+    return null;
+  }
+  function findWork(S, F, w, r){
+    const ci = Math.floor(w.x), cj = Math.floor(w.z);
+    let best = -1, bd = 1e9;
+    for (let rad = 0; rad <= 16 && best < 0; rad++){
+      for (let dj = -rad; dj <= rad; dj++) for (let di = -rad; di <= rad; di++){
+        if (Math.max(Math.abs(di), Math.abs(dj)) !== rad) continue;
+        const i = ci + di, j = cj + dj;
+        if (i < 0 || j < 0 || i >= N || j >= N) continue;
+        const k = j * N + i;
+        if ((S._claimed && S._claimed.has(k)) || !plotNeed(S, F, k, w.job, r)) continue;
+        const d = di * di + dj * dj; if (d < bd){ bd = d; best = k; }
+      }
+    }
+    return best;
+  }
+  function workPlot(S, F, k, kind, r, changed){
+    if (kind === 'harvest'){
+      const c = CROPS[F.crop[k]], v = Math.round(harvestValue(c, r, S) * .9);
+      F.st[k] = WILD; S.coins += v; S.earned += v; S.harvests++; S.workerEarned = (S.workerEarned || 0) + v;
+      const eh = S.eraHarv || (S.eraHarv = {}); eh[c.id] = (eh[c.id] || 0) + 1;
+      if (OPTS.rest){ F.rest[k] = S.clock + c.rest; S.anyRest = true; }
+    } else if (kind === 'sow'){
+      const c = cropById[S.seed];
+      if (OPTS.fert && c.fert) S.fert -= c.fert;
+      F.st[k] = GROWING; F.crop[k] = CROPS.indexOf(c); F.ripe[k] = S.clock + growSeconds(c, r); S.growing++; S.sown++;
+    } else {
+      F.st[k] = PLOWED; S.eraPlow = (S.eraPlow || 0) + 1;
+      if (!F.ever[k]){ F.ever[k] = 1; S.worked++; }
+    }
+    if (changed) changed.push(k);
+  }
+  function workersStep(S, F, dt, rnd, changed){
+    const ws = S.workers, ev = [];
+    if (!ws || !ws.length) return ev;
+    const r = rates(S), night = isNight(S), wx = S.wx ? S.wx.kind : 'clear', winter = season(S) === 3;
+    const rough = wx === 'rain' || wx === 'storm' || wx === 'snow' || winter;
+    // From 2026 the people are replaced by robots.
+    if (S.era >= ROBOT_ERA && ws.some(w => !w.robot)){
+      for (const w of ws) if (!w.robot){ w.robot = true; w.name = 'Unit ' + (100 + w.id * 37 % 900); w.state = 'work'; if (w.trait === 'idler' || w.trait === 'slow') w.trait = 'steady'; }
+      ev.push({type:'robots'});
+    }
+    // Wages are paid every minute. If the coins run short, everyone stops until they are paid.
+    S.payT = (S.payT || 0) + dt;
+    if (S.payT >= 60){
+      S.payT = 0;
+      const due = ws.reduce((a, w) => a + workerWage(S, w), 0);
+      if (S.coins >= due){
+        S.coins -= due; S.wagesPaid = (S.wagesPaid || 0) + due;
+        for (const w of ws) if (w.state === 'strike') w.state = 'work';
+        ev.push({type:'paid', due});
+      } else { for (const w of ws) if (w.state === 'work' || w.state === 'slack') w.state = 'strike'; ev.push({type:'unpaid', due}); }
+    }
+    // Quarrels: now and then two people at work fall out and stop for a while.
+    const people = ws.filter(w => !w.robot && w.state === 'work');
+    if (people.length >= 2 && !night && rnd() < dt * .0005){
+      const a = people[Math.floor(rnd() * people.length)], b = people.filter(x => x !== a)[Math.floor(rnd() * (people.length - 1))];
+      a.state = b.state = 'fight'; a.t = b.t = 20;
+      let hurt = null; if (rnd() < .3){ hurt = rnd() < .5 ? a : b; hurt.state = 'injured'; hurt.t = 50; }
+      ev.push({type:'fight', a:a.name, b:b.name, hurt:hurt && hurt.name});
+    }
+    S._claimed = new Set();
+    for (let n = ws.length - 1; n >= 0; n--){
+      const w = ws[n], tr = TRAITS[w.trait];
+      w.enc = Math.max(0, (w.enc || 0) - dt); w.calm = Math.max(0, (w.calm || 0) - dt);
+      // Timed states run out.
+      if (w.state === 'sick' || w.state === 'injured' || w.state === 'fight' || w.state === 'broken'){
+        w.t -= dt;
+        if (w.state === 'sick' && (winter || wx === 'snow') && rnd() < dt * .0006){ ws.splice(n, 1); ev.push({type:'died', name:w.name, cause:'illness'}); continue; }
+        if (w.t <= 0){ w.state = 'work'; ev.push({type:'back', name:w.name}); }
+        continue;
+      }
+      if (w.state === 'slack' && !w.calm){ w.t = (w.t || 0) + dt; if (w.t > 180 && rnd() < dt * .02){ w.state = 'work'; w.t = 0; } }
+      // Risks. Robots only fear lightning.
+      if (wx === 'storm' && rnd() < dt * .0012){
+        if (w.robot){ w.state = 'broken'; w.t = 60; ev.push({type:'lightning', name:w.name, robot:true}); continue; }
+        if (rnd() < .15){ ws.splice(n, 1); ev.push({type:'died', name:w.name, cause:'lightning'}); continue; }
+        w.state = 'injured'; w.t = 70; ev.push({type:'lightning', name:w.name}); continue;
+      }
+      if (!w.robot){
+        if (rough && w.state === 'work' && rnd() < dt * .0006){ w.state = 'sick'; w.t = 90; ev.push({type:'sick', name:w.name}); continue; }
+        if (w.state === 'work' && !night && rnd() < dt * .00012){ w.state = 'injured'; w.t = 45; ev.push({type:'tool', name:w.name}); continue; }
+        if (w.state === 'work' && !w.calm && !night && rnd() < dt * tr.slack / 60){ w.state = 'slack'; w.t = 0; ev.push({type:'slack', name:w.name}); continue; }
+      }
+      if (w.state !== 'work') continue;
+      // Night: people walk back to the nearest barn and rest; robots carry on.
+      if (night && !w.robot){
+        const b = nearestBarn(w.x, w.z).barn, dx = b[0] - w.x, dz = b[1] - w.z, d = Math.hypot(dx, dz);
+        if (d > 6){ const v = Math.min(d, 2.4 * dt); w.x += dx / d * v; w.z += dz / d * v; }
+        w.tk = -1; w.busy = 'rest'; continue;
+      }
+      const speed = (w.robot ? 1.25 : 1) * tr.speed;
+      if (w.tk >= 0 && !plotNeed(S, F, w.tk, w.job, r)) w.tk = -1;
+      if (w.tk < 0){ w.look = (w.look || 0) - dt; if (w.look <= 0){ w.tk = findWork(S, F, w, r); w.look = w.tk < 0 ? 2 : 0; } }
+      if (w.tk < 0){ w.busy = 'idle'; continue; }
+      S._claimed.add(w.tk);
+      const ti = w.tk % N + .5, tj = Math.floor(w.tk / N) + .5, dx = ti - w.x, dz = tj - w.z, d = Math.hypot(dx, dz);
+      if (d > .45){ const v = Math.min(d, 2.4 * speed * dt); w.x += dx / d * v; w.z += dz / d * v; w.busy = 'walk'; w.act = 0; continue; }
+      w.busy = 'work'; w.act += dt * speed;
+      if (w.act >= 1.2){
+        const kind = plotNeed(S, F, w.tk, w.job, r);
+        if (kind){ workPlot(S, F, w.tk, kind, r, changed); w.did++; w.lastKind = kind; }
+        w.act = 0; w.tk = -1;
+      }
+    }
+    S._claimed = null;
+    return ev;
+  }
   function rockFee(S, size){
     const tier = trackById.rock.tiers[S.lv.rock || 0];
     return nice(M[S.era - 1] * .02 * size * tier.fk);
@@ -430,17 +619,21 @@ const Game = (() => {
     return v;
   }
   function ripen(S, F, changed, dt){
-    if (!S.growing) return 0;
+    if (!S.growing && !S.anyRest) return 0;
+    S.anyRest = false;
     let n = 0; const st = F.st, ripe = F.ripe, now = S.clock, crop = F.crop;
     // Growth rate by crop this tick: rain 1.5x, winter stops crops that are not winter-hardy.
     let shift = null;
     if (dt > 0 && OPTS.seasons){
-      const winter = season(S) === 3, wet = S.wx && (S.wx.kind === 'rain' || S.wx.kind === 'storm');
+      const winter = season(S) === 3 && rates(S).snow < 3, wet = S.wx && (S.wx.kind === 'rain' || S.wx.kind === 'storm');
       if (winter || wet){ shift = CROPS.map(c => dt * (1 - (winter && !c.hardy ? 0 : wet ? 1.5 : 1))); }
     }
-    for (let k = 0; k < st.length; k++) if (st[k] === GROWING){
-      if (shift) ripe[k] += shift[crop[k]];
-      if (ripe[k] <= now){ st[k] = RIPE; n++; if (changed) changed.push(k); }
+    const rest = F.rest;
+    for (let k = 0; k < st.length; k++){
+      if (st[k] === GROWING){
+        if (shift) ripe[k] += shift[crop[k]];
+        if (ripe[k] <= now){ st[k] = RIPE; n++; if (changed) changed.push(k); }
+      } else if (rest[k]){ if (rest[k] <= now){ rest[k] = 0; if (changed) changed.push(k); } else S.anyRest = true; }
     }
     S.growing -= n;
     return n;
@@ -540,6 +733,16 @@ const Game = (() => {
     S.rocks = Math.max(0, +s.rocks || 0);
     S.gold = Math.max(0, +s.gold || 0);
     S.artDone = Math.max(0, +s.artDone || 0); S.rockT = Math.max(0, +s.rockT || 0);
+    S.snow = clamp(+s.snow || 0, 0, 1); S.payT = clamp(+s.payT || 0, 0, 60); S.wid = Math.max(0, s.wid | 0);
+    S.wagesPaid = Math.max(0, +s.wagesPaid || 0); S.workerEarned = Math.max(0, +s.workerEarned || 0);
+    S.workers = [];
+    if (Array.isArray(s.workers)) for (const w of s.workers.slice(0, MAX_WORKERS)){
+      if (!w || !TRAITS[w.trait] || !isFinite(w.x) || !isFinite(w.z)) continue;
+      const st = ['work', 'slack', 'strike', 'sick', 'injured', 'fight', 'broken'].includes(w.state) ? w.state : 'work';
+      S.workers.push({id:w.id | 0, name:String(w.name || 'Worker').slice(0, 20), trait:w.trait, payK:clamp(+w.payK || 1, .3, 3), robot:!!w.robot,
+        job:MODES.includes(w.job) ? w.job : 'all', state:st, t:clamp(+w.t || 0, 0, 200), x:clamp(+w.x, .5, N - .5), z:clamp(+w.z, .5, N - .5),
+        hx:+w.hx || N / 2, hz:+w.hz || N / 2, act:0, tk:-1, did:Math.max(0, w.did | 0)});
+    }
     if (s.art && artById[s.art.id] && isFinite(s.art.x0) && isFinite(s.art.z0)){
       const a = artById[s.art.id], sc = clamp(s.art.s | 0, 1, 20);
       S.art = {id:s.art.id, s:sc, x0:clamp(s.art.x0 | 0, 0, N - a.w * sc), z0:clamp(s.art.z0 | 0, 0, N - a.h * sc), fee:Math.max(1, +s.art.fee || 1),
@@ -556,6 +759,6 @@ const Game = (() => {
     return {S, F};
   }
 
-  return {N, WILD, PLOWED, GROWING, RIPE, ART, artById, ART_DONE_AT, artFee, artReward, HINTS, hintCost, startArt, buyHint, artBlock, artProgress, artCheck, OPTS, SEASONS, SEASON_LEN, LOCS, locById, locMult, season, inSeason, fertPrice, buyFert, moveCost, setLoc, goldAt, goldValue, weatherStep, wash, FLOOD_WARN, MODES, REQS, reqStatus, reqMet, ROCK_NAMES, rockFee, BARNS, SELL_RANGE, nearestBarn, canSell, sell, ERAS, CROPS, TRACKS, M, cropById, trackById, cellsIn, offsets, reprice,
+  return {N, WILD, PLOWED, GROWING, RIPE, TRAITS, MAX_WORKERS, ROBOT_ERA, workerWage, hireFee, candidate, hire, fire, setJob, encourage, bonus, bonusCost, workersStep, DAY_LEN, NIGHT_AT, dayPhase, isNight, ART, artById, ART_DONE_AT, artFee, artReward, HINTS, hintCost, startArt, buyHint, artBlock, artProgress, artCheck, OPTS, SEASONS, SEASON_LEN, LOCS, locById, locMult, season, inSeason, fertPrice, buyFert, moveCost, setLoc, goldAt, goldValue, weatherStep, wash, FLOOD_WARN, MODES, REQS, reqStatus, reqMet, ROCK_NAMES, rockFee, BARNS, SELL_RANGE, nearestBarn, canSell, sell, ERAS, CROPS, TRACKS, M, cropById, trackById, cellsIn, offsets, reprice,
     fresh, freshField, rates, harvestValue, growSeconds, swing, ripen, nextTier, buy, nextEra, advance, setSeed, pack, unpack};
 })();

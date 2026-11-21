@@ -193,6 +193,22 @@ svg{display:block}
 .artnow{display:grid; grid-template-columns:auto 1fr; gap:12px; align-items:start; background:var(--panel); border:1.5px solid var(--accent); border-radius:var(--radius); padding:12px}
 .artnow p{margin:0 0 6px; font-size:.84rem}
 .artnow .chips{margin-top:6px}
+.wkchip{font:inherit; color:var(--ink); text-align:left; padding:4px 9px; font-size:.78rem; cursor:pointer; font-variant-numeric:tabular-nums}
+.wkchip b{font-weight:700}
+.wkchip .bad{color:#c0392b; font-weight:700}
+.hireCard{display:grid; grid-template-columns:1fr auto; gap:6px 12px; align-items:center; background:var(--panel); border:1.5px dashed var(--line); border-radius:var(--radius); padding:10px 12px; margin-bottom:8px; font-size:.85rem}
+.wk{background:var(--panel); border:1.5px solid var(--line); border-radius:var(--radius); padding:9px 11px; display:flex; flex-direction:column; gap:6px; font-size:.82rem}
+.wk + .wk{margin-top:8px}
+.wk header{display:flex; justify-content:space-between; gap:8px; align-items:baseline; position:static; padding:0; border:0; background:none}
+.wk header b{font-size:.98rem}
+.wk .st{font-weight:700}
+.wk .st.bad{color:#c0392b}
+.wk .st.ok{color:#2f8a3e}
+.wk .row2{display:flex; flex-wrap:wrap; gap:5px; align-items:center}
+.wk .row2 .btn{min-height:32px; padding:4px 10px; font-weight:600}
+.wk .row2 .btn[aria-pressed="true"]{background:var(--accent); color:var(--on-accent); border-color:var(--accent)}
+.cheat{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+.cheat input{font:inherit; padding:7px 10px; border:1.5px solid var(--line); border-radius:var(--radius); background:var(--panel); color:var(--ink); min-width:0; flex:1; text-transform:uppercase}
 .toast{position:absolute; right:14px; bottom:146px; max-width:min(78%,320px); padding:7px 11px; font-size:.86rem; pointer-events:none}
 .modes{position:absolute; right:14px; bottom:94px; display:flex; gap:4px; padding:4px}
 .modes button{border:0; border-radius:calc(var(--radius) + 2px); background:transparent; color:var(--ink); font-weight:700; font-size:.86rem; min-height:38px; padding:0 10px; cursor:pointer}
@@ -339,6 +355,7 @@ svg{display:block}
     <div class="bag panel" id="bagBox"><span id="bagText"></span><div class="bar"><i id="bagFill"></i></div></div>
     <div class="wx panel" id="wxChip"></div>
     <div class="artchip panel" id="artChip" hidden></div>
+    <button class="wkchip panel" id="wkChip" type="button" hidden></button>
     <div class="barnhint panel" id="barnHint" hidden><i id="barnArrow"></i><span id="barnText"></span></div>
   </div>
   <button class="btn" id="enter" type="button" hidden></button>
@@ -366,6 +383,7 @@ svg{display:block}
     <section id="fertSec" hidden><h2>Fertilizer</h2><p class="note" id="fertNote"></p><div class="chips" id="fertBuy"></div></section>
     <section><h2>Farm location</h2><p class="note" id="locNote"></p><div class="locs" id="locList"></div></section>
     <section><h2>Field art</h2><p class="note">Take a commission, then grow the figure in crops around the flag, north at the top of the map. Each square is one block of plots. Hints help; finish with no hints and the reward doubles.</p><div id="artBox"></div></section>
+    <section id="workSec"><h2>Workers</h2><p class="note" id="workNote"></p><div id="workBox"></div></section>
     <section><h2>Tools</h2><div id="shop"></div></section>
     <footer>
       <div id="stats"></div>
@@ -386,6 +404,7 @@ svg{display:block}
         <button class="btn quiet" type="button" data-gfx="medium">Medium</button>
         <button class="btn quiet" type="button" data-gfx="low">Low</button>
       </div>
+      <form class="cheat" id="cheatForm" autocomplete="off"><label for="cheatIn">Cheat code</label><input id="cheatIn" maxlength="20" spellcheck="false"><button class="btn quiet" type="submit">Use</button></form>
       <div class="row" id="resetRow"><button class="btn quiet" id="reset" type="button">Start over</button></div>
     </footer>
   </div>
@@ -473,13 +492,27 @@ svg{display:block}
     return new THREE.CanvasTexture(c);
   })();
   const fixColor = o => { if (o && o.color !== undefined && !(o.color instanceof THREE.Color)) o.color = LIN(o.color); return o; };
-  const stdMat = o => new THREE.MeshStandardMaterial(Object.assign({roughness:.82, metalness:0}, fixColor(Object.assign({}, o))));
+  // Rain darkens and glosses surfaces; snow settles on everything that faces up.
+  const snowAll = {value:0}, wetAll = {value:0};
+  function weatherPatch(sh){
+    sh.uniforms.uSnowAll = snowAll; sh.uniforms.uWetAll = wetAll;
+    sh.fragmentShader = 'uniform float uSnowAll; uniform float uWetAll;\n' + sh.fragmentShader
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, roughnessFactor * 0.3, uWetAll);')
+      .replace('#include <normal_fragment_maps>', [
+        '#include <normal_fragment_maps>',
+        'float upness = dot(normal, normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz));',
+        'float snowK = uSnowAll * smoothstep(0.2, 0.65, upness);',
+        'diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - 0.3 * uWetAll), vec3(0.9, 0.92, 0.96), snowK);'].join('\n'));
+  }
+  const stdMat = o => { const m = new THREE.MeshStandardMaterial(Object.assign({roughness:.82, metalness:0}, fixColor(Object.assign({}, o)))); m.onBeforeCompile = weatherPatch; return m; };
   const basicMat = o => new THREE.MeshBasicMaterial(fixColor(Object.assign({}, o)));
   const ptsMat = o => new THREE.PointsMaterial(fixColor(Object.assign({}, o)));
   // Wind: grass, crops and trees bend with one shared clock.
   const wind = {value:0};
   function addWind(mat, strength){
+    const before = mat.onBeforeCompile;
     mat.onBeforeCompile = sh => {
+      before.call(mat, sh);
       sh.uniforms.uTime = wind;
       sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <begin_vertex>', [
         'vec3 transformed = vec3(position);',
@@ -646,6 +679,7 @@ svg{display:block}
   });
   const fieldSnow = {value:0};
   fieldMat.onBeforeCompile = sh => {
+    weatherPatch(sh);
     sh.uniforms.tGrass = {value:grassDetail}; sh.uniforms.tSoil = {value:soilDetail}; sh.uniforms.uSnow = fieldSnow;
     sh.fragmentShader = 'uniform sampler2D tGrass; uniform sampler2D tSoil; uniform float uSnow;\n' + sh.fragmentShader.replace('#include <map_fragment>', [
       '#ifdef USE_MAP',
@@ -1278,6 +1312,7 @@ svg{display:block}
     cropsDirty = true;
     $('when').textContent = era.year + ' · ' + era.name;
     wxBase.top.copy(skyU.top.value); wxBase.hor.copy(skyU.horizon.value); wxBase.fog.copy(scene.fog.color); wxBase.sunCol.copy(skyU.sunCol.value);
+    wxBase.el = el; wxBase.starsEra = !!night;
     wxBase.sunI = sun.intensity; wxBase.hemiI = hemi.intensity; wxBase.near = scene.fog.near; wxBase.far = scene.fog.far;
     wxBase.tree.copy(treeMat.color); wxBase.grass.copy(grassBase); wxBase.outer.copy(outerMat.color); wxBase.hill.copy(hillMat.color);
     wxBase.cloud.copy(clouds[0].material.color); wxBase.cloudOp = clouds[0].material.opacity;
@@ -1366,7 +1401,7 @@ svg{display:block}
       $('fertNote').textContent = 'You have ' + fmt(S.fert || 0) + ' units. One unit costs ' + fmt(price) + ' coins. Sowing a plot uses the units its crop needs.';
       $('fertBuy').innerHTML = amounts.map(a => '<button type="button" class="btn quiet" data-fert="' + a + '"' + (S.coins < a * price ? ' disabled' : '') + '>Buy ' + fmt(a) + ' · ' + fmt(a * price) + '</button>').join('');
     }
-    buildArt();
+    buildArt(); buildWorkers();
     const cost = G.moveCost(S);
     $('locNote').textContent = (S.loc ? 'Your farm is in ' + G.locById[S.loc].name + '. Moving costs ' + fmt(cost) + ' coins.' : 'Pick where your farm is.') + ' Prices change for the crops each country is known for.';
     $('locList').innerHTML = G.LOCS.map(l => {
@@ -1590,6 +1625,11 @@ svg{display:block}
     clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2800);
   }
   function rockNews(res){
+    if (res.snowBlocked && !res.n){
+      const st = G.TRACKS.find(t => t.id === 'snow').tiers[1];
+      toast('snowtool', 'Snow covers the ground. You need a snow tool to plow or sow in it' + (S.lv.snow ? '.' : ': a ' + st.name.toLowerCase() + ' from the shop.'), 7000);
+    }
+    if (res.resting && !res.sowed) toast('rest', 'This ground is resting after the harvest. It can be sown again in ' + Math.ceil(res.resting) + ' s; plow or harvest elsewhere meanwhile.', 25000);
     if (res.gold){ popGain('Gold nugget! +' + fmt(res.goldCoins), 'big'); sound('gold'); toast('gold', 'You found gold inside the rock: +' + fmt(res.goldCoins) + ' coins.', 1500); }
     if (res.offSeason && !res.sowed){
       const c = G.cropById[S.seed];
@@ -1782,6 +1822,26 @@ svg{display:block}
   /* ---------- weather and seasons ---------- */
   const wxBase = {top:new THREE.Color(), hor:new THREE.Color(), fog:new THREE.Color(), sunCol:new THREE.Color(), tree:new THREE.Color(),
     grass:new THREE.Color(), outer:new THREE.Color(), hill:new THREE.Color(), cloud:new THREE.Color(), cloudOp:.85, sunI:2.5, hemiI:.5, near:40, far:200};
+  const NIGHT_TOP = LIN(0x05081a), NIGHT_HOR = LIN(0x17203a), DUSK = LIN(0xff9a5a), DUSK_SKY = LIN(0xf0a070), MOON = LIN(0x9fb4ff);
+  let dayLight = 1;
+  // A warm lantern you carry, lit at night.
+  const lantern = new THREE.PointLight(0xffc27a, 0, 24, 1.7); lantern.position.set(.4, .2, -.6); camera.add(lantern);
+  // Raindrops splashing on the ground around you.
+  const SPL = 140, splash = new THREE.InstancedMesh(new THREE.RingGeometry(.6, 1, 16).rotateX(-Math.PI / 2), basicMat({color:0xd9e8f5, transparent:true, opacity:.55, depthWrite:false}), SPL);
+  splash.frustumCulled = false; splash.count = 0; scene.add(splash);
+  const splashes = Array.from({length:SPL}, () => ({x:0, z:0, t:Math.random(), life:.35 + Math.random() * .3}));
+  const sd = new THREE.Object3D();
+  function paintSplashes(dt, k){
+    const n = Math.round(SPL * Math.min(1, k * 1.4));
+    splash.count = n; if (!n) return;
+    for (let a = 0; a < n; a++){
+      const p = splashes[a]; p.t += dt / p.life;
+      if (p.t >= 1){ p.t = 0; const ang = Math.random() * Math.PI * 2, rr = 1 + Math.random() * 14; p.x = S.px - Math.sin(S.yaw) * 6 + Math.cos(ang) * rr; p.z = S.pz - Math.cos(S.yaw) * 6 + Math.sin(ang) * rr; }
+      const sc = .03 + p.t * .22;
+      sd.position.set(p.x, .05, p.z); sd.scale.set(sc, 1, sc); sd.updateMatrix(); splash.setMatrixAt(a, sd.matrix);
+    }
+    splash.instanceMatrix.needsUpdate = true; splash.material.opacity = .5;
+  }
   const GREY = LIN(0x8d969e), STORM = LIN(0x4d555e), WHITE = LIN(0xf2f5f8), AUTUMN = LIN(0xd07a2a), STRAW = LIN(0xb8a24a), tmpC = new THREE.Color();
   let wet = 0, snowCover = 0, autumn = 0, flash = 0, nextFlash = 4;
   // Falling rain is a set of streaks, snow a set of soft dots, both kept in a box around you.
@@ -1807,7 +1867,7 @@ svg{display:block}
   warnRing.rotation.x = -Math.PI / 2; warnRing.visible = false; warnRing.renderOrder = 3; scene.add(warnRing);
   const DIRS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
   const dirTo = (x, z) => DIRS[(Math.round(Math.atan2(-(x - S.px), z - S.pz) / (Math.PI / 4)) + 8) % 8];
-  function onWeather(e){
+  let onWeather = function(e){
     if (e.type === 'weather'){
       if (e.kind === 'storm'){
         const w = S.wx, d = Math.round(Math.hypot(w.fx - S.px, w.fz - S.pz));
@@ -1833,21 +1893,37 @@ svg{display:block}
     const w = S.wx || {kind:'clear'}, sea = G.season(S);
     const target = w.kind === 'storm' ? 1 : w.kind === 'rain' ? .55 : w.kind === 'snow' ? .4 : 0;
     wet += (target - wet) * Math.min(1, dt * .6);
-    if (sea === 3 && w.kind === 'snow') snowCover = Math.min(1, snowCover + dt / 25);
-    else if (sea !== 3) snowCover = Math.max(0, snowCover - dt / 35);
+    snowCover = S.snow || 0;
+    snowAll.value = snowCover * .92; wetAll.value = Math.min(1, wet * 1.4) * (1 - snowCover);
     autumn += ((sea === 2 ? 1 : 0) - autumn) * Math.min(1, dt * .08);
     // storms flash
     flash = Math.max(0, flash - dt * 5);
     if (w.kind === 'storm'){ nextFlash -= dt; if (nextFlash <= 0){ flash = 1; nextFlash = 5 + Math.random() * 9; setTimeout(() => sound('thunder'), 300 + Math.random() * 1500); } }
     // light, fog and sky
     const grey = tmpC.copy(GREY).lerp(STORM, Math.max(0, wet - .55) / .45);
-    sun.intensity = wxBase.sunI * (1 - .72 * wet);
-    hemi.intensity = wxBase.hemiI * (1 - .15 * wet) + flash * 2.2;
-    scene.fog.color.copy(wxBase.fog).lerp(grey, wet * .85); scene.background.copy(scene.fog.color);
+    // Day and night: dawn and dusk fade over a few seconds; the sun climbs and sets, the moon lights the night.
+    const ph = G.dayPhase(S), NA = G.NIGHT_AT, fade = .05;
+    const light = ph < fade ? ph / fade : ph < NA - fade ? 1 : ph < NA ? (NA - ph) / fade : 0;
+    dayLight = light;
+    const climb = Math.sin(Math.PI * Math.min(1, ph / NA));
+    const elv = light > 0 ? Math.max(.06, wxBase.el * (.3 + .7 * climb)) : wxBase.el;
+    const az = light > 0 ? SUN_AZ - .9 + 1.8 * Math.min(1, ph / NA) : SUN_AZ + Math.PI;
+    sunDir.set(Math.cos(elv) * Math.sin(az), Math.sin(elv), Math.cos(elv) * Math.cos(az)).normalize();
+    skyU.sunDir.value.copy(sunDir);
+    const dusk = light > 0 && light < 1 ? 1 - light : (ph < .12 || (ph > NA - .1 && ph < NA)) ? .35 : 0;
+    sun.color.copy(wxBase.sunCol).lerp(DUSK, dusk * .7).lerp(MOON, 1 - light);
+    sun.intensity = wxBase.sunI * (1 - .72 * wet) * (.12 + .88 * light);
+    hemi.intensity = wxBase.hemiI * (1 - .15 * wet) * (.32 + .68 * light) + flash * 2.2;
+    lantern.intensity = (1 - light) * 1.6;
+    stars.visible = wxBase.starsEra || light < .45;
+    scene.fog.color.copy(wxBase.fog).lerp(grey, wet * .85).lerp(NIGHT_HOR, (1 - light) * .9); scene.background.copy(scene.fog.color);
     scene.fog.near = wxBase.near * (1 - .5 * wet); scene.fog.far = wxBase.far * (1 - .5 * wet);
-    skyU.top.value.copy(wxBase.top).lerp(grey, wet * .9); skyU.horizon.value.copy(wxBase.hor).lerp(grey, wet * .85);
+    skyU.top.value.copy(wxBase.top).lerp(grey, wet * .9).lerp(NIGHT_TOP, (1 - light) * .95);
+    skyU.horizon.value.copy(wxBase.hor).lerp(grey, wet * .85).lerp(DUSK_SKY, dusk * .45).lerp(NIGHT_HOR, (1 - light) * .9);
+    skyU.night.value = Math.max(wxBase.starsEra ? 1 : 0, 1 - light);
     skyU.sunCol.value.copy(wxBase.sunCol).multiplyScalar(1 - wet * .9);
-    for (const c of clouds){ c.material.color.copy(wxBase.cloud).lerp(grey, wet); c.material.opacity = Math.min(1, wxBase.cloudOp + wet * .3); }
+    paintSplashes(dt, w.kind === 'rain' || w.kind === 'storm' ? wet : 0);
+    for (const c of clouds){ c.material.color.copy(wxBase.cloud).lerp(grey, wet).multiplyScalar(.25 + .75 * light); c.material.opacity = Math.min(1, wxBase.cloudOp + wet * .3); }
     // seasons on the land
     treeMat.color.copy(wxBase.tree).lerp(AUTUMN, autumn * .65).lerp(WHITE, snowCover * .55);
     grassBase.copy(wxBase.grass).lerp(STRAW, autumn * .35).lerp(WHITE, snowCover * .8);
@@ -1942,6 +2018,175 @@ svg{display:block}
     if (chip._h !== html){ chip._h = html; chip.innerHTML = html; }
     chip.hidden = false;
   }
+
+  /* ---------- workers ---------- */
+  const SHIRTS = [0xb5463a, 0x3a6fb5, 0x4f8a3a, 0xc9952e, 0x7a4fa8, 0x2f8f8a, 0xa85a2a, 0x5a5a6a, 0xd06a8a];
+  const workerViews = new Map();
+  function labelSprite(){
+    const c = document.createElement('canvas'); c.width = 320; c.height = 72;
+    const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:t, transparent:true, depthWrite:false, fog:false, toneMapped:false}));
+    sp.scale.set(2.2, .5, 1); sp.userData = {c, t, text:''}; sp.renderOrder = 4; return sp;
+  }
+  function setLabel(sp, text, bad){
+    if (sp.userData.text === text + bad) return;
+    sp.userData.text = text + bad;
+    const g = sp.userData.c.getContext('2d'); g.clearRect(0, 0, 320, 72);
+    g.font = '600 30px system-ui, sans-serif'; const w = Math.min(310, g.measureText(text).width + 28);
+    g.fillStyle = bad ? 'rgba(160,40,30,.88)' : 'rgba(20,24,30,.72)';
+    const x = (320 - w) / 2; g.beginPath(); g.moveTo(x + 14, 6); g.arcTo(x + w, 6, x + w, 66, 14); g.arcTo(x + w, 66, x, 66, 14); g.arcTo(x, 66, x, 6, 14); g.arcTo(x, 6, x + w, 6, 14); g.fill();
+    g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 160, 37, 300);
+    sp.userData.t.needsUpdate = true;
+  }
+  function workerModel(w){
+    const g = new THREE.Group(), parts = {};
+    if (w.robot){
+      const shell = lam(0xf1efe8), dark = lam(0x2a3040);
+      g.add(bx(.7, .45, .9, shell, 0, .55, 0), bx(.66, .05, .8, lam(0x1d2f55), 0, .79, 0), cy(.04, .5, MAT.iron, 0, 1.05, -.25), bx(.3, .2, .26, shell, 0, 1.35, -.25), bx(.2, .06, .02, basicMat({color:0x52f0ff}), 0, 1.36, -.39));
+      const wl = [];
+      for (const s of [-1, 1]) for (const z of [-.3, .3]){ const wh = cy(.16, .1, dark, s * .4, .16, z, 'x'); g.add(wh); wl.push(wh); }
+      const armP = new THREE.Group(); armP.position.set(.3, .7, -.45); armP.add(bx(.06, .06, .5, MAT.iron, 0, 0, -.25), bx(.14, .18, .06, lam(0xff8a3c), 0, -.08, -.5)); g.add(armP);
+      parts.wheels = wl; parts.arm = armP;
+    } else {
+      const shirt = lam(SHIRTS[w.id % SHIRTS.length]), pants = lam(0x3b3a46);
+      const legs = [-1, 1].map(s => { const p = new THREE.Group(); p.position.set(s * .11, .82, 0); p.add(bx(.15, .82, .17, pants, 0, -.41, 0)); g.add(p); return p; });
+      g.add(bx(.44, .6, .26, shirt, 0, 1.12, 0), ball(.15, MAT.skin, 0, 1.58, 0), cy(.27, .05, MAT.straw, 0, 1.72, 0), cy(.14, .12, MAT.straw, 0, 1.78, 0));
+      const arms = [-1, 1].map(s => { const p = new THREE.Group(); p.position.set(s * .29, 1.38, 0); p.add(bx(.11, .56, .11, shirt, 0, -.28, 0)); g.add(p); return p; });
+      const hoe = new THREE.Group(); hoe.add(cy(.022, 1.2, MAT.wood, 0, -.3, -.1), bx(.2, .05, .16, MAT.iron, 0, -.9, -.18)); arms[1].add(hoe); hoe.position.set(0, -.5, 0);
+      parts.legs = legs; parts.arms = arms;
+    }
+    g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    const label = labelSprite(); label.position.y = w.robot ? 1.85 : 2.15; g.add(label); parts.label = label;
+    g.userData = parts; scene.add(g); return g;
+  }
+  const STATE_WORD = {slack:'idle — stopped', strike:'unpaid — stopped', sick:'sick', injured:'injured', fight:'quarrelling', broken:'broken down'};
+  function workerWord(w){
+    if (STATE_WORD[w.state]) return STATE_WORD[w.state];
+    if (w.busy === 'rest') return 'sleeping';
+    if (w.busy === 'idle') return 'looking for work';
+    return w.job === 'all' ? 'working' : w.job === 'plow' ? 'plowing' : w.job === 'sow' ? 'sowing' : 'harvesting';
+  }
+  const badState = w => ['slack', 'strike', 'sick', 'injured', 'fight', 'broken'].includes(w.state);
+  let wkT = 0;
+  function syncWorkers(dt){
+    const ws = S.workers || [], seen = new Set();
+    for (const w of ws){
+      seen.add(w.id);
+      let v = workerViews.get(w.id);
+      if (v && v.userData.robot !== !!w.robot){ scene.remove(v); workerViews.delete(w.id); v = null; }
+      if (!v){ v = workerModel(w); v.userData.robot = !!w.robot; v.userData.ph = Math.random() * 6; v.userData.px = w.x; v.userData.pz = w.z; workerViews.set(w.id, v); }
+      const u = v.userData, mdx = w.x - u.px, mdz = w.z - u.pz, moved = Math.hypot(mdx, mdz);
+      if (moved > .001) v.rotation.y = Math.atan2(-mdx, -mdz);
+      u.px = w.x; u.pz = w.z;
+      v.position.set(w.x, 0, w.z); v.rotation.x = 0; v.rotation.z = 0;
+      u.ph += dt * (moved > .001 ? 9 : 4);
+      const working = w.state === 'work' && w.busy === 'work';
+      if (u.legs){ for (const [n, l] of u.legs.entries()) l.rotation.x = moved > .001 ? Math.sin(u.ph + n * Math.PI) * .6 : 0;
+        u.arms[1].rotation.x = working ? -.6 + Math.sin(u.ph * 1.6) * .8 : moved > .001 ? Math.sin(u.ph) * .4 : 0;
+        u.arms[0].rotation.x = moved > .001 ? -Math.sin(u.ph) * .4 : 0;
+        if (w.state === 'sick' || w.state === 'injured' || w.busy === 'rest'){ v.rotation.z = Math.PI / 2; v.position.y = .2; }
+        else if (w.state === 'slack'){ v.position.y = -.35; }
+        else if (w.state === 'fight'){ v.rotation.y += Math.sin(u.ph * 3) * .4; }
+      } else {
+        for (const wh of u.wheels) wh.rotation.x -= moved * 4;
+        u.arm.rotation.x = working ? -.4 + Math.sin(u.ph * 2) * .5 : 0;
+        if (w.state === 'broken') v.rotation.z = .25;
+      }
+      setLabel(u.label, w.name + ' · ' + workerWord(w), badState(w) ? 1 : 0);
+    }
+    for (const [id, v] of workerViews) if (!seen.has(id)){ scene.remove(v); workerViews.delete(id); }
+    wkT += dt;
+    if (wkT > .5 || !dt){
+      wkT = 0;
+      const chip = $('wkChip');
+      if (!ws.length){ chip.hidden = true; }
+      else {
+        const stopped = ws.filter(badState).length, asleep = ws.filter(w => w.busy === 'rest' && w.state === 'work').length;
+        const html = '<b>' + (ws.some(w => w.robot) ? 'Robots' : 'Workers') + ' ' + ws.length + '/' + G.MAX_WORKERS + '</b>' + (stopped ? ' · <span class="bad">' + stopped + ' stopped</span>' : '') + (asleep ? ' · ' + asleep + ' asleep' : '');
+        if (chip._h !== html){ chip._h = html; chip.innerHTML = html; }
+        chip.hidden = false;
+      }
+      if (sheetOpen) buildWorkers(true);
+    }
+  }
+  $('wkChip').addEventListener('click', () => { openShop(true); $('workSec').scrollIntoView(); });
+  function buildWorkers(refresh){
+    const ws = S.workers || [], robots = S.era >= G.ROBOT_ERA, c = G.candidate(S), fee = G.hireFee(S), tr = G.TRAITS[c.trait];
+    const note = (robots ? 'Robots work day and night and never fall ill, but lightning can knock them out for a minute.' : 'Workers sleep at night, can fall ill in rain, snow or winter, can be hurt by tools or lightning, and sometimes quarrel. Idlers stop now and then; encourage them or pay a bonus.') +
+      ' Wages are paid every minute; if you cannot pay, everyone stops. Harvests they bring in go straight to your coins.';
+    const html = '<div class="hireCard"><div><b>' + c.name + '</b> · ' + tr.label + (tr.speed !== 1 ? ' (works ' + tr.speed + '× as fast)' : '') + '<br>Wage ' + fmt(G.workerWage(S, {payK:c.payK, robot:c.robot})) + ' coins a minute</div>' +
+      '<button class="btn" type="button" data-hire' + (ws.length >= G.MAX_WORKERS || S.coins < fee ? ' disabled' : '') + '>' + (ws.length >= G.MAX_WORKERS ? 'Crew is full' : (robots ? 'Buy' : 'Hire') + ' · ' + fmt(fee)) + '</button></div>' +
+      ws.map(w => {
+        const t = G.TRAITS[w.trait], bad = badState(w), word = workerWord(w);
+        let actions = '';
+        if (w.state === 'slack') actions = '<button class="btn quiet" type="button" data-enc="' + w.id + '">Encourage</button><button class="btn quiet" type="button" data-bonus="' + w.id + '"' + (S.coins < G.bonusCost(S, w) ? ' disabled' : '') + '>Bonus · ' + fmt(G.bonusCost(S, w)) + '</button>';
+        else if (w.state === 'strike') actions = '<button class="btn quiet" type="button" data-bonus="' + w.id + '"' + (S.coins < G.bonusCost(S, w) ? ' disabled' : '') + '>Pay now · ' + fmt(G.bonusCost(S, w)) + '</button>';
+        return '<div class="wk"><header><b>' + w.name + '</b><span class="st ' + (bad ? 'bad' : 'ok') + '">' + word + (w.t > 1 && ['sick', 'injured', 'fight', 'broken'].includes(w.state) ? ' · ' + Math.ceil(w.t) + ' s' : '') + '</span></header>' +
+          '<span>' + t.label + ' · ' + fmt(G.workerWage(S, w)) + ' a minute · ' + fmt(w.did) + ' plots worked</span>' +
+          '<div class="row2">' + ['all', 'plow', 'sow', 'harvest'].map(j => '<button class="btn quiet" type="button" data-job="' + j + '" data-w="' + w.id + '" aria-pressed="' + (w.job === j) + '">' + (j === 'all' ? 'All' : j[0].toUpperCase() + j.slice(1)) + '</button>').join('') + actions +
+          '<button class="btn quiet" type="button" data-fire="' + w.id + '">Let go</button></div></div>';
+      }).join('');
+    if (refresh && $('workBox')._h === html) return;
+    $('workBox')._h = html; $('workBox').innerHTML = html; $('workNote').textContent = note;
+  }
+  $('workBox').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.hasAttribute('data-hire')){ const w = G.hire(S, S.px - Math.sin(S.yaw) * 3, S.pz - Math.cos(S.yaw) * 3); if (w){ sound('buy'); toast('hire', w.name + ' joined the farm.', 500); } }
+    else if (b.dataset.job) G.setJob(S, +b.dataset.w, b.dataset.job);
+    else if (b.dataset.enc){ const r = G.encourage(S, +b.dataset.enc); const w = (S.workers || []).find(x => x.id === +b.dataset.enc); if (w) toast('enc', r === 'ok' ? w.name + ' cheers up and goes back to work.' : r === 'wait' ? 'Give ' + w.name + ' a moment.' : w.name + ' shrugs. Try again shortly, or pay a bonus.', 500); }
+    else if (b.dataset.bonus){ if (G.bonus(S, +b.dataset.bonus)) sound('sell'); }
+    else if (b.dataset.fire) G.fire(S, +b.dataset.fire);
+    buildWorkers(); paintHud(true); save();
+  });
+  function onWorker(e){
+    const say = {
+      sick:() => e.name + ' has fallen ill and stopped working.',
+      tool:() => e.name + ' was hurt by a tool and must rest.',
+      lightning:() => e.robot ? 'Lightning struck ' + e.name + '. It will reboot in a minute.' : 'Lightning struck near ' + e.name + ', who is injured.',
+      died:() => 'Sad news: ' + e.name + ' has died' + (e.cause === 'lightning' ? ', struck by lightning.' : ' of illness.'),
+      fight:() => e.a + ' and ' + e.b + ' are quarrelling and have stopped work' + (e.hurt ? '; ' + e.hurt + ' got hurt.' : '.'),
+      slack:() => e.name + ' has stopped working. Encourage them or pay a bonus (Workers in the shop).',
+      unpaid:() => 'You could not pay ' + fmt(e.due) + ' in wages. Your workers have stopped until they are paid.',
+      robots:() => 'It is ' + G.ERAS[S.era - 1].year + ': robots have taken over the field work.',
+      back:() => null, paid:() => null
+    }[e.type];
+    const text = say && say();
+    if (text) toast('w' + e.type, text, e.type === 'died' ? 200 : 4000);
+    if (e.type === 'died' || e.type === 'lightning') sound('warn');
+  }
+  // Night and morning messages come from the weather clock.
+  const _onWeather = onWeather;
+  onWeather = e => {
+    if (e.type === 'night') toast('night', 'Night falls.' + ((S.workers || []).some(w => !w.robot) ? ' Your workers head to the barns to sleep.' : ''), 60000);
+    else if (e.type === 'day') toast('day', 'Morning.' + ((S.workers || []).some(w => !w.robot) ? ' Your workers are back in the fields.' : ''), 60000);
+    else _onWeather(e);
+  };
+
+  /* ---------- cheat codes ---------- */
+  const CHEATS = {
+    MONEYBAGS:() => { const n = G.nextEra(S); const add = Math.max(1000, n ? n.cost : S.coins); S.coins += add; S.earned += add; return '+' + fmt(add) + ' coins.'; },
+    NEXTAGE:() => { const n = G.nextEra(S); if (!n) return 'This is already the last age.'; for (const r of G.reqStatus(S)){ if (r.kind === 'plow') S.eraPlow = r.need; else S.eraHarv[r.id] = r.need; } S.coins += n.cost; enterAge(); return null; },
+    HARVESTMOON:() => { let n = 0; for (let k = 0; k < F.st.length; k++) if (F.st[k] === G.GROWING){ F.ripe[k] = 0; n++; } return n + ' crops ripen at once.'; },
+    FERTILE:() => { S.fert = (S.fert || 0) + 10000; return '+10,000 fertilizer.'; },
+    SUNSHINE:() => { S.wx = {kind:'clear', left:120, dur:120}; return 'The sky clears.'; },
+    STORMY:() => { const a = Math.random() * 6.28; S.wx = {kind:'storm', left:55, dur:55, flooded:false, fx:Math.max(10, Math.min(G.N - 10, S.px + Math.cos(a) * 20)), fz:Math.max(10, Math.min(G.N - 10, S.pz + Math.sin(a) * 20)), fr:14}; onWeather({type:'weather', kind:'storm'}); return null; },
+    SNOWFALL:() => { S.yearT = Math.floor((S.yearT || 0) / (G.SEASON_LEN * 4)) * G.SEASON_LEN * 4 + G.SEASON_LEN * 3 + 1; S.wx = {kind:'snow', left:80, dur:80}; S.snow = .7; return 'Winter arrives with snow.'; },
+    NEXTSEASON:() => { S.yearT = (Math.floor((S.yearT || 0) / G.SEASON_LEN) + 1) * G.SEASON_LEN + .5; return 'It is ' + G.SEASONS[G.season(S)].toLowerCase() + '.'; },
+    DAYBREAK:() => { S.yearT = (Math.floor((S.yearT || 0) / G.DAY_LEN) + 1) * G.DAY_LEN + .5; return 'The sun rises.'; },
+    NIGHTFALL:() => { S.yearT = Math.floor((S.yearT || 0) / G.DAY_LEN) * G.DAY_LEN + G.DAY_LEN * G.NIGHT_AT + .5; return 'Night falls.'; },
+    FULLCREW:() => { let n = 0; while ((S.workers || []).length < G.MAX_WORKERS){ S.coins += G.hireFee(S); S.cand = {name:['Aydan', 'Murad', 'Leyla', 'Tural', 'Nigar', 'Elvin', 'Sabina', 'Rashad', 'Gunay'][n % 9], trait:'hard', robot:S.era >= G.ROBOT_ERA, payK:1}; G.hire(S, S.px + (n % 3 - 1) * 2, S.pz - 3 - Math.floor(n / 3) * 2); n++; } return n ? n + ' hard workers hired for free.' : 'Your crew is already full.'; },
+    CLEARROCKS:() => { let n = 0; for (let k = 0; k < F.rock.length; k++) if (F.rock[k]){ F.rock[k] = 0; n++; } paintAll(); return n + ' rocks vanish.'; },
+    QUICKSALE:() => { const v = S.bagValue; S.coins += v; S.earned += v; S.sold += S.bag; S.bag = 0; S.bagValue = 0; return 'Your bag sold where you stand for ' + fmt(v) + ' coins.'; }
+  };
+  $('cheatForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const code = $('cheatIn').value.trim().toUpperCase().replace(/\s+/g, ''); $('cheatIn').value = '';
+    const f = CHEATS[code];
+    if (!f){ toast('cheat', 'Nothing happens. That is not a cheat code.', 0); return; }
+    const msg = f(); R = G.rates(S); cropsDirty = true; buildShop(); paintHud(true); save();
+    if (msg) toast('cheat', 'Cheat: ' + msg, 0);
+    sound('done');
+  });
 
   /* ---------- input ---------- */
   const keys = {}, look = new Map(), joy = {id:null, x:0, y:0, ox:0, oy:0};
@@ -2049,6 +2294,8 @@ svg{display:block}
     }
     ripenT += dt;
     for (const ev of G.weatherStep(S, F, dt, S.px, S.pz, Math.random, changed)) onWeather(ev);
+    for (const ev of G.workersStep(S, F, dt, Math.random, changed)) onWorker(ev);
+    syncWorkers(dt);
     if (ripenT > .25){ G.ripen(S, F, changed, ripenT); ripenT = 0; }
     if (changed.length){
       for (let a = 0; a < changed.length; a++) paintCell(changed[a]);
@@ -2093,7 +2340,8 @@ svg{display:block}
     started = true;
     if (!S.loc) showLocPick();
     artMarkers();
-    { const sea = G.season(S); if (sea === 3) snowCover = S.wx && S.wx.kind === 'snow' ? .9 : .6; if (sea === 2) autumn = 1; }
+    { const sea = G.season(S); if (sea === 3 && !S.snow) S.snow = S.wx && S.wx.kind === 'snow' ? .9 : .6; if (sea === 2) autumn = 1; }
+    syncWorkers(0);
     requestAnimationFrame(frame);
     document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
     window.addEventListener('pagehide', save);
