@@ -5,7 +5,7 @@ A first-person farming game in the browser. You start in the year 300 with bare 
 ## How it plays
 
 - Walk into the grass. Your tool plows every plot it reaches. Pass again to sow, and come back when the crop is ripe to harvest it.
-- The mode bar above the Work button picks what your tool does: **All** does whichever step each plot needs, while **Plow**, **Sow** and **Harvest** do only that one step.
+- The mode bar above the Work button picks what your tool does: **All** does whichever step each plot needs, while **Plow**, **Sow** and **Harvest** do only that one step. Plow also plows growing and ripe crops back under, and those crops are lost.
 - Plowing and sowing pay nothing. Harvested crops go into your bag.
 - When the bag is full, walk to one of the four red barns at the edges of the field and empty it. That is the only way to earn coins.
 - Spend coins in the shop on six kinds of upgrade: tool reach, swing speed, walking speed, harvest value, growth speed and bag size.

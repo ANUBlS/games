@@ -144,6 +144,10 @@ const Game = (() => {
       } else if (st === RIPE && doReap){
         if (S.bag >= r.bag){ blocked++; continue; }
         F.st[k] = WILD; S.bag++; got++; value += harvestValue(CROPS[F.crop[k]], r); S.harvests++;
+      } else if (m === 'plow' && (st === GROWING || st === RIPE)){
+        // Plow mode turns crops under: growing or ripe, they go back to bare plowed soil and are lost.
+        if (st === GROWING) S.growing--;
+        F.st[k] = PLOWED; S.plowedUnder = (S.plowedUnder || 0) + 1;
       } else continue;
       n++; if (changed) changed.push(k);
     }

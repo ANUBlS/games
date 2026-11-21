@@ -309,7 +309,7 @@ svg{display:block}
   <div class="joy rest" id="joy" aria-hidden="true"><i></i></div>
   <div class="modes panel" id="modes" role="group" aria-label="What the tool does">
     <button type="button" data-mode="all" aria-pressed="true">All</button>
-    <button type="button" data-mode="plow" aria-pressed="false">Plow</button>
+    <button type="button" data-mode="plow" aria-pressed="false" title="Plows grass and plows crops under">Plow</button>
     <button type="button" data-mode="sow" aria-pressed="false">Sow</button>
     <button type="button" data-mode="harvest" aria-pressed="false">Harvest</button>
   </div>
@@ -496,6 +496,10 @@ const Game = (() => {
       } else if (st === RIPE && doReap){
         if (S.bag >= r.bag){ blocked++; continue; }
         F.st[k] = WILD; S.bag++; got++; value += harvestValue(CROPS[F.crop[k]], r); S.harvests++;
+      } else if (m === 'plow' && (st === GROWING || st === RIPE)){
+        // Plow mode turns crops under: growing or ripe, they go back to bare plowed soil and are lost.
+        if (st === GROWING) S.growing--;
+        F.st[k] = PLOWED; S.plowedUnder = (S.plowedUnder || 0) + 1;
       } else continue;
       n++; if (changed) changed.push(k);
     }
