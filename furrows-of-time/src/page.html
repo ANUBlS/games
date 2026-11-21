@@ -157,6 +157,9 @@ svg{display:block}
 .joy i{position:absolute; left:50%; top:50%; width:48px; height:48px; margin:-24px 0 0 -24px; border-radius:50%; background:rgba(255,255,255,.85); box-shadow:0 0 0 2px rgba(0,0,0,.25)}
 .joy.rest{left:76px; bottom:20px; top:auto; margin:0 0 0 -56px; opacity:.55}
 
+.modes{position:absolute; right:14px; bottom:94px; display:flex; gap:4px; padding:4px}
+.modes button{border:0; border-radius:calc(var(--radius) + 2px); background:transparent; color:var(--ink); font-weight:700; font-size:.86rem; min-height:38px; padding:0 10px; cursor:pointer}
+.modes button[aria-pressed="true"]{background:var(--accent); color:var(--on-accent)}
 #work{position:absolute; right:14px; bottom:26px; min-width:112px; min-height:56px; font-size:1.05rem; box-shadow:0 0 0 2px var(--panel)}
 #work[aria-pressed="false"]{background:var(--panel); color:var(--ink); box-shadow:0 0 0 1.5px var(--line)}
 
@@ -304,6 +307,12 @@ svg{display:block}
   <div class="gains" id="gains" aria-hidden="true"></div>
   <div class="tip panel" id="tip"></div>
   <div class="joy rest" id="joy" aria-hidden="true"><i></i></div>
+  <div class="modes panel" id="modes" role="group" aria-label="What the tool does">
+    <button type="button" data-mode="all" aria-pressed="true">All</button>
+    <button type="button" data-mode="plow" aria-pressed="false">Plow</button>
+    <button type="button" data-mode="sow" aria-pressed="false">Sow</button>
+    <button type="button" data-mode="harvest" aria-pressed="false">Harvest</button>
+  </div>
   <button class="btn" id="work" type="button" aria-pressed="true">Work: on</button>
 </div>
 
@@ -1296,7 +1305,7 @@ svg{display:block}
       row.innerHTML = '<span>Erase this farm and go back to the year 300?</span><button class="btn" id="resetYes" type="button">Erase farm</button><button class="btn quiet" id="resetNo" type="button">Keep farming</button>';
     else if (id === 'resetYes' || id === 'resetNo'){
       row.innerHTML = '<button class="btn quiet" id="reset" type="button">Start over</button>';
-      if (id === 'resetYes'){ S = G.fresh(); F = G.freshField(); R = G.rates(S); setRig(); paintAll(); applyEra(); setWork(true); paintHud(true); openShop(false); }
+      if (id === 'resetYes'){ S = G.fresh(); F = G.freshField(); R = G.rates(S); setRig(); paintAll(); applyEra(); setWork(true); setMode('all'); paintHud(true); openShop(false); }
     }
   });
 
@@ -1350,7 +1359,7 @@ svg{display:block}
         : S.harvests === 0 ? 'Sown. When the ' + seed + ' ripens, walk back over it. The crop goes into your bag.'
         : full ? 'Your bag is full. Follow the arrow to the red barn and empty it there for coins.'
         : 'Harvests fill your bag. Coins come only when you empty the bag at a barn.';
-      tip = '<b>' + main + '</b><span>' + (S.harvests ? 'Plowing and sowing pay nothing. Bigger bags are in the shop.' : touch ? 'Left thumb walks. Drag anywhere else to look around.' : 'W A S D to walk. Drag with the mouse to look. Space rests. E empties the bag.') + '</span>';
+      tip = '<b>' + main + '</b><span>' + (S.harvests ? 'Plowing and sowing pay nothing. Bigger bags are in the shop.' : touch ? 'Left thumb walks. Drag anywhere else to look around.' : 'W A S D to walk. Drag with the mouse to look. Space rests. E empties the bag. 1 to 4 pick All, Plow, Sow or Harvest.') + '</span>';
     } else if (full && !near) tip = '<b>Bag full.</b><span>Follow the arrow to the nearest barn to empty it. Ripe crops wait for you.</span>';
     if (tip !== shownTip){ shownTip = tip; $('tip').innerHTML = tip; $('tip').hidden = !tip; }
   }
@@ -1377,6 +1386,15 @@ svg{display:block}
     b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Work: on' : 'Work: off';
   }
   $('work').addEventListener('click', () => setWork(!S.work));
+  // Work mode: All, or only plow, only sow, only harvest. The ring takes the mode's colour.
+  const MODE_RING = {all:0xfff6d8, plow:0xc98a52, sow:0x8fe07a, harvest:0xffd45e};
+  function setMode(m){
+    if (!G.MODES.includes(m)) m = 'all';
+    S.mode = m;
+    for (const b of document.querySelectorAll('[data-mode]')) b.setAttribute('aria-pressed', String(b.dataset.mode === m));
+    ringMat.color.copy(LIN(MODE_RING[m]));
+  }
+  $('modes').addEventListener('click', e => { const b = e.target.closest('[data-mode]'); if (b) setMode(b.dataset.mode); });
   canvas.addEventListener('pointerdown', e => {
     if (sheetOpen) return;
     try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
@@ -1415,6 +1433,7 @@ svg{display:block}
     if (e.code === 'Space' && !sheetOpen && !e.repeat && document.activeElement.tagName !== 'BUTTON'){ setWork(!S.work); e.preventDefault(); }
     if (e.code === 'Escape' && sheetOpen) openShop(false);
     if (e.code === 'KeyE' && !sheetOpen) emptyBag();
+    if (!sheetOpen && /^Digit[1-4]$/.test(e.code)) setMode(G.MODES[+e.code.slice(5) - 1]);
     keys[e.code] = true;
   });
   window.addEventListener('keyup', e => { keys[e.code] = false; });
@@ -1478,7 +1497,7 @@ svg{display:block}
     rig.tick(dt, moved, kick);
     const rr = Math.max(R.tool, .62);
     reach.position.set(tci + .5, .06, tcj + .5); reach.scale.set(rr, rr, 1);
-    ringMat.opacity = S.work ? .5 : .2;
+    ringMat.opacity = S.work ? (S.mode === 'all' ? .5 : .85) : .2;
     if (stars.visible) stars.position.copy(camera.position);
     sky.position.copy(camera.position);
     wind.value += dt;
@@ -1499,7 +1518,7 @@ svg{display:block}
   function start(data){
     const got = G.unpack(data && data.v ? data : readLocal());
     S = got.S; F = got.F; R = G.rates(S);
-    setGfx(gfx); setRig(); paintAll(); applyEra(); setWork(S.work); resize(); paintHud(true); paintMap();
+    setGfx(gfx); setRig(); paintAll(); applyEra(); setWork(S.work); setMode(S.mode); resize(); paintHud(true); paintMap();
     started = true;
     requestAnimationFrame(frame);
     document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });

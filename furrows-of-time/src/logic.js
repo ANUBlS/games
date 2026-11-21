@@ -107,7 +107,7 @@ const Game = (() => {
 
   function fresh(){
     const lv = {}; for (const t of TRACKS) lv[t.id] = 0;
-    return {v:4, coins:0, earned:0, era:1, seed:'wheat', lv, bag:0, bagValue:0, sold:0, harvests:0, sown:0, worked:0, growing:0, clock:0, done:false,
+    return {v:4, coins:0, earned:0, era:1, seed:'wheat', mode:'all', lv, bag:0, bagValue:0, sold:0, harvests:0, sown:0, worked:0, growing:0, clock:0, done:false,
       px:N / 2 + .5, pz:3.5, yaw:Math.PI, pitch:-.32, work:true};
   }
   function freshField(){
@@ -121,6 +121,8 @@ const Game = (() => {
   const harvestValue = (crop, r) => Math.round(crop.value * r.yield);
   const growSeconds = (crop, r) => crop.grow / r.water;
 
+  // Work modes: 'all' does whichever step each plot needs; the others do only their own step.
+  const MODES = ['all', 'plow', 'sow', 'harvest'];
   // One swing of the tool centred on plot (ci, cj). Every plot under it moves one step on:
   // grass is plowed, plowed soil is sown, a ripe crop goes into the bag. Plowing and sowing pay
   // nothing; the bag pays when you empty it at a barn. A full bag leaves ripe crops standing.
@@ -128,17 +130,18 @@ const Game = (() => {
     r = r || rates(S);
     const off = offsets(r.tool), seedIdx = CROPS.indexOf(cropById[S.seed]);
     const ripeAt = S.clock + growSeconds(CROPS[seedIdx], r);
+    const m = S.mode || 'all', doPlow = m === 'all' || m === 'plow', doSow = m === 'all' || m === 'sow', doReap = m === 'all' || m === 'harvest';
     let got = 0, value = 0, n = 0, blocked = 0;
     for (let o = 0; o < off.length; o += 2){
       const i = ci + off[o], j = cj + off[o + 1];
       if (i < 0 || j < 0 || i >= N || j >= N) continue;
       const k = j * N + i, st = F.st[k];
-      if (st === WILD){
+      if (st === WILD && doPlow){
         F.st[k] = PLOWED;
         if (!F.ever[k]){ F.ever[k] = 1; S.worked++; }
-      } else if (st === PLOWED){
+      } else if (st === PLOWED && doSow){
         F.st[k] = GROWING; F.crop[k] = seedIdx; F.ripe[k] = ripeAt; S.growing++; S.sown++;
-      } else if (st === RIPE){
+      } else if (st === RIPE && doReap){
         if (S.bag >= r.bag){ blocked++; continue; }
         F.st[k] = WILD; S.bag++; got++; value += harvestValue(CROPS[F.crop[k]], r); S.harvests++;
       } else continue;
@@ -219,6 +222,7 @@ const Game = (() => {
     if (isFinite(s.yaw)) S.yaw = +s.yaw;
     if (isFinite(s.pitch)) S.pitch = clamp(+s.pitch, -1.2, .5);
     S.work = s.work !== false;
+    S.mode = MODES.includes(s.mode) ? s.mode : 'all';
     let k = 0;
     for (let a = 0; a + 1 < d.field.length && k < N * N; a += 2){
       const v = d.field[a] | 0, len = d.field[a + 1] | 0, st = v & 3, crop = (v >> 2) & 15, ever = (v >> 6) & 1;
@@ -231,6 +235,6 @@ const Game = (() => {
     return {S, F};
   }
 
-  return {N, WILD, PLOWED, GROWING, RIPE, BARNS, SELL_RANGE, nearestBarn, canSell, sell, ERAS, CROPS, TRACKS, M, cropById, trackById, cellsIn, offsets, reprice,
+  return {N, WILD, PLOWED, GROWING, RIPE, MODES, BARNS, SELL_RANGE, nearestBarn, canSell, sell, ERAS, CROPS, TRACKS, M, cropById, trackById, cellsIn, offsets, reprice,
     fresh, freshField, rates, harvestValue, growSeconds, swing, ripen, nextTier, buy, nextEra, advance, setSeed, pack, unpack};
 })();
