@@ -157,6 +157,17 @@ svg{display:block}
 .joy i{position:absolute; left:50%; top:50%; width:48px; height:48px; margin:-24px 0 0 -24px; border-radius:50%; background:rgba(255,255,255,.85); box-shadow:0 0 0 2px rgba(0,0,0,.25)}
 .joy.rest{left:76px; bottom:20px; top:auto; margin:0 0 0 -56px; opacity:.55}
 
+.reqs{list-style:none; margin:8px 0 0; padding:0; display:flex; flex-direction:column; gap:6px; font-size:.84rem}
+.reqs li{display:grid; grid-template-columns:1fr auto; gap:2px 10px; align-items:center}
+.reqs li span{font-variant-numeric:tabular-nums; color:var(--muted)}
+.reqs li i{grid-column:1 / span 2; display:block; height:5px; border-radius:3px; background:var(--line); overflow:hidden}
+.reqs li i b{display:block; height:100%; width:calc(100% * var(--f,0)); background:var(--accent)}
+.reqs li.ok{color:var(--muted)}
+.reqs li.ok i b{background:#3a9a4a}
+.next{flex-wrap:wrap}
+.next .reqbox{flex-basis:100%}
+.audio .btn{min-height:34px; padding:5px 10px}
+.audio .btn[aria-pressed="true"]{background:var(--accent); color:var(--on-accent); border-color:var(--accent)}
 .toast{position:absolute; right:14px; bottom:146px; max-width:min(78%,320px); padding:7px 11px; font-size:.86rem; pointer-events:none}
 .modes{position:absolute; right:14px; bottom:94px; display:flex; gap:4px; padding:4px}
 .modes button{border:0; border-radius:calc(var(--radius) + 2px); background:transparent; color:var(--ink); font-weight:700; font-size:.86rem; min-height:38px; padding:0 10px; cursor:pointer}
@@ -322,12 +333,24 @@ svg{display:block}
 <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden>
   <div class="inner">
     <header><h1 id="sheetTitle">Furrows of Time</h1><button class="btn quiet" id="closeShop" type="button">Back to the field</button></header>
-    <section class="next"><p id="nextText"></p><button class="btn" id="advance" type="button"></button></section>
+    <section class="next"><p id="nextText"></p><button class="btn" id="advance" type="button"></button><div class="reqbox" id="reqBox"></div></section>
     <ol class="ages" id="ages" aria-label="The twelve ages"></ol>
     <section><h2>Seeds</h2><div class="seeds" id="seeds"></div></section>
     <section><h2>Tools</h2><div id="shop"></div></section>
     <footer>
       <div id="stats"></div>
+      <div class="row audio" id="sfxRow"><span>Sound effects</span>
+        <button class="btn quiet" type="button" data-sfx="on">On</button>
+        <button class="btn quiet" type="button" data-sfx="off">Off</button>
+      </div>
+      <div class="row audio" id="musicRow"><span>Music</span>
+        <button class="btn quiet" type="button" data-music="auto">Match the age</button>
+        <button class="btn quiet" type="button" data-music="lute">Lute</button>
+        <button class="btn quiet" type="button" data-music="pipes">Pipes</button>
+        <button class="btn quiet" type="button" data-music="piano">Piano</button>
+        <button class="btn quiet" type="button" data-music="synth">Synth</button>
+        <button class="btn quiet" type="button" data-music="off">Off</button>
+      </div>
       <div class="row gfx" id="gfxRow"><span>Graphics</span>
         <button class="btn quiet" type="button" data-gfx="high">High</button>
         <button class="btn quiet" type="button" data-gfx="medium">Medium</button>
@@ -480,7 +503,7 @@ const Game = (() => {
 
   function fresh(){
     const lv = {}; for (const t of TRACKS) lv[t.id] = 0;
-    return {v:5, coins:0, earned:0, era:1, seed:'wheat', mode:'all', lv, bag:0, bagValue:0, sold:0, harvests:0, sown:0, worked:0, growing:0, clock:0, done:false,
+    return {v:5, coins:0, earned:0, era:1, seed:'wheat', mode:'all', eraPlow:0, eraHarv:{}, lv, bag:0, bagValue:0, sold:0, harvests:0, sown:0, worked:0, growing:0, clock:0, done:false,
       px:N / 2 + .5, pz:3.5, yaw:Math.PI, pitch:-.32, work:true};
   }
   // Rocks lie in clusters across the field, the same on every farm, clear of the start.
@@ -520,7 +543,8 @@ const Game = (() => {
     const off = offsets(r.tool), seedIdx = CROPS.indexOf(cropById[S.seed]);
     const ripeAt = S.clock + growSeconds(CROPS[seedIdx], r);
     const m = S.mode || 'all', doPlow = m === 'all' || m === 'plow', doSow = m === 'all' || m === 'sow', doReap = m === 'all' || m === 'harvest';
-    let got = 0, value = 0, n = 0, blocked = 0, weak = 0, poor = 0, skipped = 0, spent = 0, cleared = 0;
+    let got = 0, value = 0, n = 0, blocked = 0, weak = 0, poor = 0, skipped = 0, spent = 0, cleared = 0, plowed = 0, sowed = 0;
+    const eh = S.eraHarv || (S.eraHarv = {});
     for (let o = 0; o < off.length; o += 2){
       const i = ci + off[o], j = cj + off[o + 1];
       if (i < 0 || j < 0 || i >= N || j >= N) continue;
@@ -536,22 +560,23 @@ const Game = (() => {
         continue;
       }
       if (st === WILD && doPlow){
-        F.st[k] = PLOWED;
+        F.st[k] = PLOWED; plowed++;
         if (!F.ever[k]){ F.ever[k] = 1; S.worked++; }
       } else if (st === PLOWED && doSow){
-        F.st[k] = GROWING; F.crop[k] = seedIdx; F.ripe[k] = ripeAt; S.growing++; S.sown++;
+        sowed++; F.st[k] = GROWING; F.crop[k] = seedIdx; F.ripe[k] = ripeAt; S.growing++; S.sown++;
       } else if (st === RIPE && doReap){
         if (S.bag >= r.bag){ blocked++; continue; }
+        const cid = CROPS[F.crop[k]].id; eh[cid] = (eh[cid] || 0) + 1;
         F.st[k] = WILD; S.bag++; got++; value += harvestValue(CROPS[F.crop[k]], r); S.harvests++;
       } else if (m === 'plow' && (st === GROWING || st === RIPE)){
         // Plow mode turns crops under: growing or ripe, they go back to bare plowed soil and are lost.
         if (st === GROWING) S.growing--;
-        F.st[k] = PLOWED; S.plowedUnder = (S.plowedUnder || 0) + 1;
+        F.st[k] = PLOWED; plowed++; S.plowedUnder = (S.plowedUnder || 0) + 1;
       } else continue;
       n++; if (changed) changed.push(k);
     }
-    S.bagValue += value;
-    return {got, value, n, blocked, weak, poor, skipped, spent, cleared};
+    S.bagValue += value; S.eraPlow = (S.eraPlow || 0) + plowed;
+    return {got, value, n, blocked, weak, poor, skipped, spent, cleared, plowed, sowed};
   }
   // What removing one rock costs now: bigger rocks and later ages cost more, better tools less.
   function rockFee(S, size){
@@ -582,10 +607,30 @@ const Game = (() => {
     S.coins -= n.cost; S.lv[id]++; return true;
   }
   function nextEra(S){ return ERAS[S.era] || null; }
+  // Some ages also ask for work done during the current age before you may leave it:
+  // plots plowed, and crops of given kinds harvested. Keyed by the age you are entering.
+  const REQS = {
+    3:  {plow:2000,   crops:{barley:2000}},
+    4:  {crops:{cabbage:5000, barley:1000}},
+    5:  {plow:12000,  crops:{potato:3000, tomato:8000}},
+    6:  {crops:{cotton:20000}},
+    8:  {plow:70000,  crops:{sunflower:60000, corn:10000}},
+    9:  {crops:{soybean:100000}},
+    10: {plow:150000, crops:{strawberry:150000}},
+    12: {plow:300000, crops:{moonberry:300000, glowrice:20000}}
+  };
+  function reqStatus(S){
+    const n = nextEra(S), q = n && REQS[n.id], out = [];
+    if (!q) return out;
+    if (q.plow) out.push({kind:'plow', label:'Plow plots', have:Math.min(S.eraPlow || 0, q.plow), need:q.plow});
+    for (const id in (q.crops || {})) out.push({kind:'crop', id, label:'Harvest ' + cropById[id].name.toLowerCase(), have:Math.min((S.eraHarv || {})[id] || 0, q.crops[id]), need:q.crops[id]});
+    return out;
+  }
+  const reqMet = S => reqStatus(S).every(r => r.have >= r.need);
   function advance(S){
     const n = nextEra(S);
-    if (!n || S.coins < n.cost) return false;
-    S.coins -= n.cost; S.era = n.id;
+    if (!n || S.coins < n.cost || !reqMet(S)) return false;
+    S.coins -= n.cost; S.era = n.id; S.eraPlow = 0; S.eraHarv = {};
     const first = CROPS.find(c => c.era === n.id);
     if (first) S.seed = first.id;
     return true;
@@ -631,6 +676,8 @@ const Game = (() => {
     if (isFinite(s.pitch)) S.pitch = clamp(+s.pitch, -1.2, .5);
     S.work = s.work !== false;
     S.mode = MODES.includes(s.mode) ? s.mode : 'all';
+    S.eraPlow = Math.max(0, +s.eraPlow || 0); S.eraHarv = {};
+    if (s.eraHarv && typeof s.eraHarv === 'object') for (const id in s.eraHarv) if (cropById[id]) S.eraHarv[id] = Math.max(0, +s.eraHarv[id] || 0);
     let k = 0;
     for (let a = 0; a + 1 < d.field.length && k < N * N; a += 2){
       const v = d.field[a] | 0, len = d.field[a + 1] | 0, st = v & 3, crop = (v >> 2) & 15, ever = (v >> 6) & 1, rk = (v >> 7) & 7;
@@ -647,7 +694,7 @@ const Game = (() => {
     return {S, F};
   }
 
-  return {N, WILD, PLOWED, GROWING, RIPE, MODES, ROCK_NAMES, rockFee, BARNS, SELL_RANGE, nearestBarn, canSell, sell, ERAS, CROPS, TRACKS, M, cropById, trackById, cellsIn, offsets, reprice,
+  return {N, WILD, PLOWED, GROWING, RIPE, MODES, REQS, reqStatus, reqMet, ROCK_NAMES, rockFee, BARNS, SELL_RANGE, nearestBarn, canSell, sell, ERAS, CROPS, TRACKS, M, cropById, trackById, cellsIn, offsets, reprice,
     fresh, freshField, rates, harvestValue, growSeconds, swing, ripen, nextTier, buy, nextEra, advance, setSeed, pack, unpack};
 })();
 
@@ -1571,7 +1618,11 @@ const Game = (() => {
     const next = G.nextEra(S), adv = $('advance');
     if (next){
       $('nextText').innerHTML = 'Next age: <b>' + next.name + ', ' + next.year + '</b><br><span>' + fmt(Math.min(S.coins, next.cost)) + ' / ' + fmt(next.cost) + ' coins</span>';
-      adv.hidden = false; adv.disabled = S.coins < next.cost; adv.textContent = 'Enter ' + next.year;
+      adv.hidden = false; adv.disabled = S.coins < next.cost || !G.reqMet(S); adv.textContent = 'Enter ' + next.year;
+      const rq = G.reqStatus(S);
+      $('reqBox').innerHTML = rq.length ? '<ul class="reqs" aria-label="Work needed before you can leave this age">' + rq.map(r =>
+        '<li class="' + (r.have >= r.need ? 'ok' : '') + '">' + (r.have >= r.need ? '✓ ' : '') + r.label + '<span>' + fmt(r.have) + ' / ' + fmt(r.need) + '</span><i><b style="--f:' + (r.have / r.need).toFixed(3) + '"></b></i></li>').join('') + '</ul>'
+        : '<ul class="reqs"><li class="ok">This age only asks for coins.</li></ul>';
     } else {
       $('nextText').innerHTML = 'You farmed your way through <b>2,700 years</b>.<br><span>This is the last age. Every plot of the field is still there to farm.</span>';
       adv.hidden = true;
@@ -1594,15 +1645,15 @@ const Game = (() => {
   });
   $('shop').addEventListener('click', e => {
     const b = e.target.closest('[data-buy]');
-    if (b && G.buy(S, b.dataset.buy)){ R = G.rates(S); setRig(); buildShop(); paintHud(true); save(); }
+    if (b && G.buy(S, b.dataset.buy)){ R = G.rates(S); setRig(); buildShop(); paintHud(true); save(); sound('buy'); }
   });
   function enterAge(){
     if (!G.advance(S)) return;
-    R = G.rates(S); openShop(false); applyEra(); paintHud(true); save(); showAge();
+    R = G.rates(S); openShop(false); applyEra(); paintHud(true); save(); showAge(); sound('age'); music.restyle();
   }
   function emptyBag(){
     if (!G.canSell(S)) return;
-    const n = S.bag, v = G.sell(S);
+    const n = S.bag, v = G.sell(S); sound('sell');
     popGain('+' + fmt(v), 'big'); paintHud(true); save();
     $('sell').hidden = true;
     return n;
@@ -1623,7 +1674,8 @@ const Game = (() => {
     showCard(era.year, era.name, era.blurb,
       '<li><b>New seeds:</b> ' + crops.join(', ') + '</li>' +
       '<li><b>New in the shop:</b> ' + tools.join(', ') + '</li>' +
-      '<li>You are now sowing <b>' + G.cropById[S.seed].name.toLowerCase() + '</b>. Change it in the shop.</li>');
+      '<li>You are now sowing <b>' + G.cropById[S.seed].name.toLowerCase() + '</b>. Change it in the shop.</li>' +
+      (G.reqStatus(S).length ? '<li><b>To reach ' + G.nextEra(S).year + ':</b> ' + G.reqStatus(S).map(r => r.label.toLowerCase() + ' ' + fmt(r.need)).join(', ') + ', and ' + fmt(G.nextEra(S).cost) + ' coins.</li>' : ''));
   }
   $('veilGo').addEventListener('click', () => $('veil').classList.remove('open'));
   $('resetRow').addEventListener('click', e => {
@@ -1637,21 +1689,40 @@ const Game = (() => {
   });
 
   /* ---------- HUD ---------- */
-  let shownCoins = -1, shownTip = null, shownLand = -1;
+  let shownCoins = -1, shownTip = null, shownLand = -1, shownReq = '', reqDone = {};
+  // Age progress line: coins, plus the work this age still asks for.
+  function paintReqs(force){
+    const next = G.nextEra(S);
+    if (!next){ if ($('toNext').textContent !== 'The last age') $('toNext').textContent = 'The last age'; return; }
+    const rq = G.reqStatus(S), left = rq.filter(r => r.have < r.need);
+    const txt = fmt(Math.min(S.coins, next.cost)) + ' / ' + fmt(next.cost) + ' to ' + next.year + (rq.length ? ' · tasks ' + (rq.length - left.length) + '/' + rq.length : '');
+    if (force || txt !== shownReq){ shownReq = txt; $('toNext').textContent = txt; }
+    for (const r of rq){
+      const key = S.era + ':' + r.label;
+      if (r.have >= r.need && !reqDone[key]){
+        reqDone[key] = true;
+        if (!force){ toast('req' + key, 'Done: ' + r.label + ' ' + fmt(r.need) + (left.length ? '. ' + left.length + ' task' + (left.length > 1 ? 's' : '') + ' left for ' + next.year + '.' : '. Every task for ' + next.year + ' is done.')); sound('done'); }
+      }
+    }
+    const can = S.coins >= next.cost && G.reqMet(S), en = $('enter');
+    if (en.hidden === can){ en.hidden = !can; if (can) en.textContent = 'Enter ' + next.year; }
+    if (sheetOpen && force === false) paintShop();
+  }
   function paintHud(force){
     const c = Math.floor(S.coins);
     if (force || c !== shownCoins){
       shownCoins = c; $('coins').textContent = fmt(c);
       const next = G.nextEra(S);
       $('fill').style.setProperty('--fill', next ? Math.min(1, S.coins / next.cost).toFixed(4) : '1');
-      $('toNext').textContent = next ? fmt(Math.min(S.coins, next.cost)) + ' / ' + fmt(next.cost) + ' to ' + next.year : 'The last age';
-      const can = !!next && S.coins >= next.cost, en = $('enter');
+      paintReqs(true);
+      const can = !!next && S.coins >= next.cost && G.reqMet(S), en = $('enter');
       if (en.hidden === can){ en.hidden = !can; if (can) en.textContent = 'Enter ' + next.year; }
       let ping = can;
       if (!ping) for (const t of G.TRACKS){ const nx = G.nextTier(S, t.id); if (nx && nx.era <= S.era && nx.cost <= S.coins){ ping = true; break; } }
       $('shopBtn').classList.toggle('ping', ping);
       if (sheetOpen) paintShop();
     }
+    paintReqs(false);
     if (force || S.worked !== shownLand){
       shownLand = S.worked;
       $('land').textContent = 'Farmed ' + S.worked.toLocaleString('en-US') + ' of ' + (N * N).toLocaleString('en-US') + ' plots';
@@ -1721,6 +1792,149 @@ const Game = (() => {
     gainAt = now;
     popGain('+' + fmt(gainAcc) + ' in bag', 'bagged'); gainAcc = 0;
   }
+
+  /* ---------- sound ---------- */
+  // Everything is synthesised with Web Audio: no sound files. Effects follow the work; the music
+  // is generated phrase by phrase in one of four styles, or matches the age.
+  const AUDIO_KEY = 'furrows-of-time-audio';
+  const audioPref = {sfx:'on', music:'auto'};
+  try { Object.assign(audioPref, JSON.parse(localStorage.getItem(AUDIO_KEY) || '{}')); } catch (e) {}
+  let ac = null, master = null, sfxBus = null, musicBus = null, noiseBuf = null;
+  function audioOn(){
+    if (!ac){
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return false;
+      try { ac = new AC(); } catch (e) { return false; }
+      master = ac.createGain(); master.gain.value = .9; master.connect(ac.destination);
+      sfxBus = ac.createGain(); sfxBus.gain.value = .55; sfxBus.connect(master);
+      musicBus = ac.createGain(); musicBus.gain.value = .0; musicBus.connect(master);
+      noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+      const d = noiseBuf.getChannelData(0); for (let a = 0; a < d.length; a++) d[a] = Math.random() * 2 - 1;
+      music.restyle();
+    }
+    if (ac.state === 'suspended') ac.resume().catch(() => {});
+    return true;
+  }
+  const unlock = () => { audioOn(); };
+  window.addEventListener('pointerdown', unlock, {passive:true});
+  window.addEventListener('keydown', unlock);
+  function hiss(t, dur, type, f0, f1, q, vol, bus){
+    const src = ac.createBufferSource(); src.buffer = noiseBuf; src.playbackRate.value = .8 + Math.random() * .4;
+    const f = ac.createBiquadFilter(); f.type = type; f.Q.value = q;
+    f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ac.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + .008); g.gain.exponentialRampToValueAtTime(.0008, t + dur);
+    src.connect(f); f.connect(g); g.connect(bus || sfxBus); src.start(t, Math.random() * .5); src.stop(t + dur + .05);
+  }
+  function tone(t, freq, dur, type, vol, bus, attack, bend){
+    const o = ac.createOscillator(); o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (bend) o.frequency.exponentialRampToValueAtTime(freq * bend, t + dur);
+    const g = ac.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + (attack || .006)); g.gain.exponentialRampToValueAtTime(.0008, t + dur);
+    o.connect(g); g.connect(bus || sfxBus); o.start(t); o.stop(t + dur + .05);
+    return o;
+  }
+  const lastSound = {};
+  const PENTA = [0, 2, 4, 7, 9, 12, 14, 16];
+  function sound(kind){
+    if (audioPref.sfx !== 'on' || !ac || ac.state !== 'running') return;
+    const t = ac.currentTime, gap = {plow:.09, sow:.09, harvest:.08, rock:.15}[kind] || 0;
+    if (gap && lastSound[kind] && t - lastSound[kind] < gap) return;
+    lastSound[kind] = t;
+    if (kind === 'plow'){ hiss(t, .16, 'lowpass', 900, 160, 1.2, .55); tone(t, 85 + Math.random() * 25, .12, 'sine', .25, null, .004, .6); }
+    else if (kind === 'sow'){ for (let a = 0; a < 3; a++) hiss(t + a * .035 + Math.random() * .02, .04, 'bandpass', 3800 + Math.random() * 1800, 2600, 6, .35); }
+    else if (kind === 'harvest'){
+      hiss(t, .2, 'bandpass', 2600, 700, 1.4, .45);
+      tone(t + .02, 523.25 * Math.pow(2, PENTA[(Math.random() * 6) | 0] / 12), .35, 'triangle', .09);
+    }
+    else if (kind === 'rock'){ tone(t, 70, .3, 'sine', .55, null, .003, .5); hiss(t, .25, 'lowpass', 1400, 200, .8, .5); hiss(t + .05, .12, 'highpass', 3000, 2000, .7, .15); }
+    else if (kind === 'sell'){ [1318.5, 1568, 2093, 2637].forEach((f, a) => { tone(t + a * .07, f, .5, 'sine', .16); tone(t + a * .07, f * 2.01, .25, 'sine', .04); }); }
+    else if (kind === 'buy'){ [784, 1175].forEach((f, a) => tone(t + a * .08, f, .3, 'triangle', .14)); }
+    else if (kind === 'done'){ [659, 880, 1319].forEach((f, a) => tone(t + a * .09, f, .45, 'triangle', .14)); }
+    else if (kind === 'age'){
+      [[523, 0], [659, .14], [784, .28], [1047, .42]].forEach(([f, d]) => { tone(t + d, f, .9, 'sawtooth', .05); tone(t + d, f, 1.1, 'triangle', .12); });
+      tone(t + .42, 523, 1.6, 'triangle', .1); tone(t + .42, 659, 1.6, 'triangle', .08);
+    }
+  }
+
+  // Music: a small generator. Each style has its own instrument, tempo and scale; a phrase is a
+  // four-chord progression with a bass, chord voicing and a wandering melody over it.
+  const music = (() => {
+    const STYLES = {
+      lute:  {bpm:84,  root:57, scale:[0, 2, 3, 5, 7, 8, 10], prog:[[0, 3, 7], [5, 8, 12], [3, 7, 10], [7, 10, 14]], voice:'pluck', vol:.5},
+      pipes: {bpm:96,  root:62, scale:[0, 2, 4, 5, 7, 9, 10], prog:[[0, 4, 7], [-2, 2, 5], [0, 4, 7], [-5, 0, 4]], voice:'pipe', vol:.42},
+      piano: {bpm:72,  root:60, scale:[0, 2, 4, 5, 7, 9, 11], prog:[[0, 4, 7], [9, 12, 16], [5, 9, 12], [7, 11, 14]], voice:'piano', vol:.5},
+      synth: {bpm:108, root:57, scale:[0, 2, 3, 5, 7, 8, 10], prog:[[0, 3, 7], [8, 12, 15], [3, 7, 10], [10, 14, 17]], voice:'synth', vol:.36}
+    };
+    const AUTO = ['lute', 'lute', 'lute', 'pipes', 'pipes', 'piano', 'piano', 'piano', 'synth', 'synth', 'synth', 'synth'];
+    let style = null, timer = 0, nextBar = 0, bar = 0, mel = 2;
+    const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+    function play(voice, t, midi, dur, vol){
+      const f = mtof(midi);
+      if (voice === 'pluck'){ tone(t, f, dur * 1.6, 'triangle', vol, musicBus, .004); tone(t, f * 2, dur * .6, 'sine', vol * .3, musicBus, .003); }
+      else if (voice === 'pipe'){
+        const o = tone(t, f, dur * 1.05, 'sine', vol, musicBus, .06); const lfo = ac.createOscillator(), lg = ac.createGain();
+        lfo.frequency.value = 5.2; lg.gain.value = f * .006; lfo.connect(lg); lg.connect(o.frequency); lfo.start(t); lfo.stop(t + dur * 1.1);
+        tone(t, f * 2, dur, 'sine', vol * .12, musicBus, .06);
+      }
+      else if (voice === 'piano'){ tone(t, f, dur * 2.4, 'sine', vol, musicBus, .003); tone(t, f * 2, dur * 1.2, 'sine', vol * .22, musicBus, .003); tone(t, f * 3, dur * .5, 'sine', vol * .08, musicBus, .002); }
+      else {
+        const o = ac.createOscillator(), fl = ac.createBiquadFilter(), g = ac.createGain();
+        o.type = 'sawtooth'; o.frequency.value = f; fl.type = 'lowpass'; fl.Q.value = 6;
+        fl.frequency.setValueAtTime(400, t); fl.frequency.exponentialRampToValueAtTime(2600, t + .04); fl.frequency.exponentialRampToValueAtTime(500, t + dur);
+        g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol * .6, t + .01); g.gain.exponentialRampToValueAtTime(.0008, t + dur * 1.2);
+        o.connect(fl); fl.connect(g); g.connect(musicBus); o.start(t); o.stop(t + dur * 1.3);
+      }
+    }
+    function scheduleBar(t){
+      const st = STYLES[style], beat = 60 / st.bpm, chord = st.prog[bar % 4], root = st.root;
+      // bass and chord
+      play(st.voice, t, root - 12 + chord[0], beat * 2, .16 * st.vol / .5);
+      play(st.voice, t + beat * 2, root - 12 + chord[0] + (st.voice === 'synth' ? 12 : 7), beat * 2, .12 * st.vol / .5);
+      if (st.voice === 'pluck' || st.voice === 'synth'){
+        const pat = st.voice === 'synth' ? 8 : 6;
+        for (let a = 0; a < pat; a++) play(st.voice, t + a * beat * 4 / pat, root + chord[a % 3] + (a >= 3 ? 12 : 0), beat * .8, .07 * st.vol / .5);
+      } else for (const n of chord) play(st.voice, t, root + n, beat * 3.6, .06 * st.vol / .5);
+      // melody: a walk on the scale that leans to chord tones on strong beats
+      const steps = st.voice === 'piano' ? 4 : st.voice === 'pipe' ? 6 : 8;
+      for (let a = 0; a < steps; a++){
+        if (Math.random() < (st.voice === 'piano' ? .25 : .3)) continue;
+        mel = Math.max(0, Math.min(11, mel + [-2, -1, -1, 0, 1, 1, 2][(Math.random() * 7) | 0]));
+        let semi = st.scale[mel % 7] + 12 * Math.floor(mel / 7);
+        if (a % (steps / 2) === 0){ const c = chord[(Math.random() * 3) | 0] % 12; semi = c + 12 * Math.floor(mel / 7); }
+        play(st.voice, t + a * beat * 4 / steps, root + 12 + semi, beat * 4 / steps * (st.voice === 'pipe' ? 1.4 : 1), .1 * st.vol / .5);
+      }
+      bar++;
+      return beat * 4;
+    }
+    function tick(){
+      if (!ac || ac.state !== 'running' || !style) return;
+      while (nextBar < ac.currentTime + .6){ if (nextBar < ac.currentTime) nextBar = ac.currentTime + .05; nextBar += scheduleBar(nextBar); }
+    }
+    function restyle(){
+      const want = audioPref.music === 'off' ? null : audioPref.music === 'auto' ? AUTO[(S ? S.era : 1) - 1] : audioPref.music;
+      if (!ac) return;
+      if (want !== style){
+        style = want; bar = 0; mel = 2;
+        musicBus.gain.cancelScheduledValues(ac.currentTime);
+        musicBus.gain.setTargetAtTime(style ? .32 : 0, ac.currentTime, .4);
+        nextBar = ac.currentTime + .3;
+      }
+      if (!timer) timer = setInterval(tick, 150);
+    }
+    return {restyle};
+  })();
+  function paintAudio(){
+    for (const b of document.querySelectorAll('[data-sfx]')) b.setAttribute('aria-pressed', String(b.dataset.sfx === audioPref.sfx));
+    for (const b of document.querySelectorAll('[data-music]')) b.setAttribute('aria-pressed', String(b.dataset.music === audioPref.music));
+  }
+  function setAudio(k, v){
+    audioPref[k] = v; try { localStorage.setItem(AUDIO_KEY, JSON.stringify(audioPref)); } catch (e) {}
+    paintAudio(); audioOn(); music.restyle();
+    if (k === 'sfx' && v === 'on') sound('buy');
+  }
+  $('sfxRow').addEventListener('click', e => { const b = e.target.closest('[data-sfx]'); if (b) setAudio('sfx', b.dataset.sfx); });
+  $('musicRow').addEventListener('click', e => { const b = e.target.closest('[data-music]'); if (b) setAudio('music', b.dataset.music); });
+  paintAudio();
+  document.addEventListener('visibilitychange', () => { if (!ac) return; if (document.hidden) ac.suspend().catch(() => {}); else ac.resume().catch(() => {}); });
 
   /* ---------- input ---------- */
   const keys = {}, look = new Map(), joy = {id:null, x:0, y:0, ox:0, oy:0};
@@ -1823,6 +2037,7 @@ const Game = (() => {
         const res = G.swing(S, F, tci, tcj, R, changed);
         if (res.n){ swingT -= 1; gainAcc += res.got; kick = 1; burst(tci, tcj, res); } else swingT = 1;
         rockNews(res);
+        if (res.cleared) sound('rock'); else if (res.got) sound('harvest'); else if (res.plowed) sound('plow'); else if (res.sowed) sound('sow');
       } else swingT = 1;
     }
     ripenT += dt;

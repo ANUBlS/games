@@ -11,6 +11,20 @@ A first-person farming game in the browser. You start in the year 300 with bare 
 - Spend coins in the shop on upgrades: tool reach, swing speed, walking speed, harvest value, growth speed, bag size and rock tools.
 - About 1,070 rocks lie in clusters across the field: stones, rocks, big rocks and boulders. Nothing can be sown on a rock. To clear one, switch to Plow mode with a rock tool strong enough for its size; each rock costs coins to remove. Rock tools run from a crowbar in 300 to a matter dissolver in 3000, with a new one and a new price in every age, and later tools make each rock cheaper to clear.
 - When you have enough coins, buy your way into the next age. Each age brings new crops, new tools and a new look.
+- Some ages also set work you must finish during that age before you can leave it: plots plowed, and set amounts of particular crops harvested. The age panel counts finished tasks, and the shop shows each one with a progress bar.
+
+| Leaving | Also needed |
+|---|---|
+| 800 | plow 2,000 plots, harvest 2,000 barley |
+| 1200 | harvest 5,000 cabbage and 1,000 barley |
+| 1600 | plow 12,000 plots, harvest 3,000 potato and 8,000 tomato |
+| 1850 | harvest 20,000 cotton |
+| 1990 | plow 70,000 plots, harvest 60,000 sunflower and 10,000 corn |
+| 2000 | harvest 100,000 soybean |
+| 2026 | plow 150,000 plots, harvest 150,000 strawberry |
+| 2500 | plow 300,000 plots, harvest 300,000 moonberry and 20,000 glow rice |
+
+The other ages (300, 1940 and 2100) only ask for coins.
 
 ## Ages
 
@@ -37,6 +51,10 @@ A simulated player who never stops needs about 7 hours to reach 3000 and buy eve
 - **Computer:** W A S D to walk, drag with the mouse to look, Space turns work on and off, E empties the bag at a barn, 1 to 4 pick All, Plow, Sow or Harvest.
 
 Progress is saved in your browser.
+
+## Sound
+
+Plowing, sowing, harvesting, clearing rocks, emptying the bag and entering a new age each have their own sound. Music is generated as you play in four styles: Lute, Pipes, Piano and Synth. **Match the age** moves from lute in antiquity to synth in the future. Both are set at the bottom of the shop. Sound starts after your first tap or key press.
 
 ## Graphics
 

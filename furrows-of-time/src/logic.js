@@ -126,7 +126,7 @@ const Game = (() => {
 
   function fresh(){
     const lv = {}; for (const t of TRACKS) lv[t.id] = 0;
-    return {v:5, coins:0, earned:0, era:1, seed:'wheat', mode:'all', lv, bag:0, bagValue:0, sold:0, harvests:0, sown:0, worked:0, growing:0, clock:0, done:false,
+    return {v:5, coins:0, earned:0, era:1, seed:'wheat', mode:'all', eraPlow:0, eraHarv:{}, lv, bag:0, bagValue:0, sold:0, harvests:0, sown:0, worked:0, growing:0, clock:0, done:false,
       px:N / 2 + .5, pz:3.5, yaw:Math.PI, pitch:-.32, work:true};
   }
   // Rocks lie in clusters across the field, the same on every farm, clear of the start.
@@ -166,7 +166,8 @@ const Game = (() => {
     const off = offsets(r.tool), seedIdx = CROPS.indexOf(cropById[S.seed]);
     const ripeAt = S.clock + growSeconds(CROPS[seedIdx], r);
     const m = S.mode || 'all', doPlow = m === 'all' || m === 'plow', doSow = m === 'all' || m === 'sow', doReap = m === 'all' || m === 'harvest';
-    let got = 0, value = 0, n = 0, blocked = 0, weak = 0, poor = 0, skipped = 0, spent = 0, cleared = 0;
+    let got = 0, value = 0, n = 0, blocked = 0, weak = 0, poor = 0, skipped = 0, spent = 0, cleared = 0, plowed = 0, sowed = 0;
+    const eh = S.eraHarv || (S.eraHarv = {});
     for (let o = 0; o < off.length; o += 2){
       const i = ci + off[o], j = cj + off[o + 1];
       if (i < 0 || j < 0 || i >= N || j >= N) continue;
@@ -182,22 +183,23 @@ const Game = (() => {
         continue;
       }
       if (st === WILD && doPlow){
-        F.st[k] = PLOWED;
+        F.st[k] = PLOWED; plowed++;
         if (!F.ever[k]){ F.ever[k] = 1; S.worked++; }
       } else if (st === PLOWED && doSow){
-        F.st[k] = GROWING; F.crop[k] = seedIdx; F.ripe[k] = ripeAt; S.growing++; S.sown++;
+        sowed++; F.st[k] = GROWING; F.crop[k] = seedIdx; F.ripe[k] = ripeAt; S.growing++; S.sown++;
       } else if (st === RIPE && doReap){
         if (S.bag >= r.bag){ blocked++; continue; }
+        const cid = CROPS[F.crop[k]].id; eh[cid] = (eh[cid] || 0) + 1;
         F.st[k] = WILD; S.bag++; got++; value += harvestValue(CROPS[F.crop[k]], r); S.harvests++;
       } else if (m === 'plow' && (st === GROWING || st === RIPE)){
         // Plow mode turns crops under: growing or ripe, they go back to bare plowed soil and are lost.
         if (st === GROWING) S.growing--;
-        F.st[k] = PLOWED; S.plowedUnder = (S.plowedUnder || 0) + 1;
+        F.st[k] = PLOWED; plowed++; S.plowedUnder = (S.plowedUnder || 0) + 1;
       } else continue;
       n++; if (changed) changed.push(k);
     }
-    S.bagValue += value;
-    return {got, value, n, blocked, weak, poor, skipped, spent, cleared};
+    S.bagValue += value; S.eraPlow = (S.eraPlow || 0) + plowed;
+    return {got, value, n, blocked, weak, poor, skipped, spent, cleared, plowed, sowed};
   }
   // What removing one rock costs now: bigger rocks and later ages cost more, better tools less.
   function rockFee(S, size){
@@ -228,10 +230,30 @@ const Game = (() => {
     S.coins -= n.cost; S.lv[id]++; return true;
   }
   function nextEra(S){ return ERAS[S.era] || null; }
+  // Some ages also ask for work done during the current age before you may leave it:
+  // plots plowed, and crops of given kinds harvested. Keyed by the age you are entering.
+  const REQS = {
+    3:  {plow:2000,   crops:{barley:2000}},
+    4:  {crops:{cabbage:5000, barley:1000}},
+    5:  {plow:12000,  crops:{potato:3000, tomato:8000}},
+    6:  {crops:{cotton:20000}},
+    8:  {plow:70000,  crops:{sunflower:60000, corn:10000}},
+    9:  {crops:{soybean:100000}},
+    10: {plow:150000, crops:{strawberry:150000}},
+    12: {plow:300000, crops:{moonberry:300000, glowrice:20000}}
+  };
+  function reqStatus(S){
+    const n = nextEra(S), q = n && REQS[n.id], out = [];
+    if (!q) return out;
+    if (q.plow) out.push({kind:'plow', label:'Plow plots', have:Math.min(S.eraPlow || 0, q.plow), need:q.plow});
+    for (const id in (q.crops || {})) out.push({kind:'crop', id, label:'Harvest ' + cropById[id].name.toLowerCase(), have:Math.min((S.eraHarv || {})[id] || 0, q.crops[id]), need:q.crops[id]});
+    return out;
+  }
+  const reqMet = S => reqStatus(S).every(r => r.have >= r.need);
   function advance(S){
     const n = nextEra(S);
-    if (!n || S.coins < n.cost) return false;
-    S.coins -= n.cost; S.era = n.id;
+    if (!n || S.coins < n.cost || !reqMet(S)) return false;
+    S.coins -= n.cost; S.era = n.id; S.eraPlow = 0; S.eraHarv = {};
     const first = CROPS.find(c => c.era === n.id);
     if (first) S.seed = first.id;
     return true;
@@ -277,6 +299,8 @@ const Game = (() => {
     if (isFinite(s.pitch)) S.pitch = clamp(+s.pitch, -1.2, .5);
     S.work = s.work !== false;
     S.mode = MODES.includes(s.mode) ? s.mode : 'all';
+    S.eraPlow = Math.max(0, +s.eraPlow || 0); S.eraHarv = {};
+    if (s.eraHarv && typeof s.eraHarv === 'object') for (const id in s.eraHarv) if (cropById[id]) S.eraHarv[id] = Math.max(0, +s.eraHarv[id] || 0);
     let k = 0;
     for (let a = 0; a + 1 < d.field.length && k < N * N; a += 2){
       const v = d.field[a] | 0, len = d.field[a + 1] | 0, st = v & 3, crop = (v >> 2) & 15, ever = (v >> 6) & 1, rk = (v >> 7) & 7;
@@ -293,6 +317,6 @@ const Game = (() => {
     return {S, F};
   }
 
-  return {N, WILD, PLOWED, GROWING, RIPE, MODES, ROCK_NAMES, rockFee, BARNS, SELL_RANGE, nearestBarn, canSell, sell, ERAS, CROPS, TRACKS, M, cropById, trackById, cellsIn, offsets, reprice,
+  return {N, WILD, PLOWED, GROWING, RIPE, MODES, REQS, reqStatus, reqMet, ROCK_NAMES, rockFee, BARNS, SELL_RANGE, nearestBarn, canSell, sell, ERAS, CROPS, TRACKS, M, cropById, trackById, cellsIn, offsets, reprice,
     fresh, freshField, rates, harvestValue, growSeconds, swing, ripen, nextTier, buy, nextEra, advance, setSeed, pack, unpack};
 })();
