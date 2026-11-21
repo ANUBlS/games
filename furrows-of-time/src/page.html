@@ -1505,7 +1505,9 @@ svg{display:block}
   }
   function emptyBag(){
     if (!G.canSell(S)) return;
+    const helper = G.nearestBarn(S.px, S.pz).dist > G.SELL_RANGE ? G.helperNear(S) : null;
     const n = S.bag, v = G.sell(S); sound('sell');
+    if (helper) toast('handoff', helper.name + ' takes your bag to the barn.', 3000);
     popGain('+' + fmt(v), 'big'); paintHud(true); save();
     $('sell').hidden = true;
     return n;
@@ -1584,7 +1586,7 @@ svg{display:block}
       }
     }
     // bag and barn
-    const full = S.bag >= R.bag, nb = G.nearestBarn(S.px, S.pz), near = nb.dist <= G.SELL_RANGE;
+    const full = S.bag >= R.bag, nb = G.nearestBarn(S.px, S.pz), helper = S.bag > 0 && nb.dist > G.SELL_RANGE ? G.helperNear(S) : null, near = nb.dist <= G.SELL_RANGE || !!helper;
     const bt = 'Bag <b>' + fmt(S.bag) + ' / ' + fmt(R.bag) + '</b>' + (S.bagValue ? ' · worth ' + fmt(S.bagValue) : '') +
       (G.CROPS.some(c => c.era <= S.era && c.fert) ? ' · fertilizer <b>' + fmt(S.fert || 0) + '</b>' : '');
     if ($('bagText')._t !== bt){ $('bagText')._t = bt; $('bagText').innerHTML = bt; }
@@ -1600,7 +1602,7 @@ svg{display:block}
     }
     const sb = $('sell'), canSell = near && S.bag > 0;
     if (sb.hidden === canSell) sb.hidden = !canSell;
-    if (canSell){ const st = 'Empty bag · +' + fmt(S.bagValue); if (sb.textContent !== st) sb.textContent = st; }
+    if (canSell){ const st = (helper ? 'Give bag to ' + helper.name : 'Empty bag') + ' · +' + fmt(S.bagValue); if (sb.textContent !== st) sb.textContent = st; }
 
     let tip = '';
     const seed = G.cropById[S.seed].name.toLowerCase();
@@ -1608,10 +1610,10 @@ svg{display:block}
       const main = S.worked === 0 ? 'Walk into the grass. Your hands plow every plot they reach.'
         : S.sown === 0 ? 'Now go back over the plowed soil to sow ' + seed + '.'
         : S.harvests === 0 ? 'Sown. When the ' + seed + ' ripens, walk back over it. The crop goes into your bag.'
-        : full ? 'Your bag is full. Follow the arrow to the red barn and empty it there for coins.'
+        : full ? 'Your bag is full. Follow the arrow to the red barn and empty it there for coins, or hand it to a worker standing next to you.'
         : 'Harvests fill your bag. Coins come only when you empty the bag at a barn.';
       tip = '<b>' + main + '</b><span>' + (S.harvests ? 'Plowing and sowing pay nothing. Bigger bags are in the shop.' : touch ? 'Left thumb walks. Drag anywhere else to look around.' : 'W A S D to walk. Drag with the mouse to look. Space rests. E empties the bag. 1 to 4 pick All, Plow, Sow or Harvest.') + '</span>';
-    } else if (full && !near) tip = '<b>Bag full.</b><span>Follow the arrow to the nearest barn to empty it. Ripe crops wait for you.</span>';
+    } else if (full && !near) tip = '<b>Bag full.</b><span>Follow the arrow to the nearest barn, or walk up to one of your workers, to empty it. Ripe crops wait for you.</span>';
     if (tip !== shownTip){ shownTip = tip; $('tip').innerHTML = tip; $('tip').hidden = !tip; }
   }
   let gainAcc = 0, gainAt = 0;

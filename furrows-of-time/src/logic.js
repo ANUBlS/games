@@ -634,7 +634,18 @@ const Game = (() => {
     const tier = trackById.rock.tiers[S.lv.rock || 0];
     return nice(M[S.era - 1] * .02 * size * tier.fk);
   }
-  function canSell(S){ return S.bag > 0 && nearestBarn(S.px, S.pz).dist <= SELL_RANGE; }
+  // A worker within a few metres takes your bag to the barn for you. Sick, hurt, quarrelling or idle ones will not.
+  const HANDOFF_RANGE = 4;
+  function helperNear(S){
+    let best = null, bd = HANDOFF_RANGE;
+    for (const w of S.workers || []){
+      if (w.state !== 'work') continue;
+      const d = Math.hypot(w.x - S.px, w.z - S.pz);
+      if (d <= bd){ bd = d; best = w; }
+    }
+    return best;
+  }
+  function canSell(S){ return S.bag > 0 && (nearestBarn(S.px, S.pz).dist <= SELL_RANGE || !!helperNear(S)); }
   function sell(S){
     if (!S.bag) return 0;
     const v = S.bagValue;
@@ -784,6 +795,6 @@ const Game = (() => {
     return {S, F};
   }
 
-  return {N, WILD, PLOWED, GROWING, RIPE, inPool, canStep, TRAITS, MAX_WORKERS, ROBOT_ERA, workerWage, hireFee, candidate, hire, fire, setJob, encourage, bonus, bonusCost, workersStep, DAY_LEN, NIGHT_AT, dayPhase, isNight, ART, artById, ART_DONE_AT, artFee, artReward, HINTS, hintCost, startArt, buyHint, artBlock, artProgress, artCheck, OPTS, SEASONS, SEASON_LEN, LOCS, locById, locMult, season, inSeason, fertPrice, buyFert, moveCost, setLoc, goldAt, goldValue, weatherStep, wash, FLOOD_WARN, MODES, REQS, reqStatus, reqMet, ROCK_NAMES, rockFee, BARNS, SELL_RANGE, nearestBarn, canSell, sell, ERAS, CROPS, TRACKS, M, cropById, trackById, cellsIn, offsets, reprice,
+  return {N, WILD, PLOWED, GROWING, RIPE, helperNear, HANDOFF_RANGE, inPool, canStep, TRAITS, MAX_WORKERS, ROBOT_ERA, workerWage, hireFee, candidate, hire, fire, setJob, encourage, bonus, bonusCost, workersStep, DAY_LEN, NIGHT_AT, dayPhase, isNight, ART, artById, ART_DONE_AT, artFee, artReward, HINTS, hintCost, startArt, buyHint, artBlock, artProgress, artCheck, OPTS, SEASONS, SEASON_LEN, LOCS, locById, locMult, season, inSeason, fertPrice, buyFert, moveCost, setLoc, goldAt, goldValue, weatherStep, wash, FLOOD_WARN, MODES, REQS, reqStatus, reqMet, ROCK_NAMES, rockFee, BARNS, SELL_RANGE, nearestBarn, canSell, sell, ERAS, CROPS, TRACKS, M, cropById, trackById, cellsIn, offsets, reprice,
     fresh, freshField, rates, harvestValue, growSeconds, swing, ripen, nextTier, buy, nextEra, advance, setSeed, pack, unpack};
 })();

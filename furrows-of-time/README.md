@@ -7,7 +7,7 @@ A first-person farming game in the browser. You start in the year 300 with bare 
 - Walk into the grass. Your tool plows every plot it reaches. Pass again to sow, and come back when the crop is ripe to harvest it.
 - The mode bar above the Work button picks what your tool does: **All** does whichever step each plot needs, while **Plow**, **Sow** and **Harvest** do only that one step. Plow also plows growing and ripe crops back under, and those crops are lost.
 - Plowing and sowing pay nothing. Harvested crops go into your bag.
-- When the bag is full, walk to one of the four red barns at the edges of the field and empty it. That is the only way to earn coins.
+- When the bag is full, walk to one of the four red barns at the edges of the field and empty it, or hand it to one of your workers standing within 4 metres of you, who carries it to the barn. Selling the bag is the only way you earn coins yourself.
 - Spend coins in the shop on upgrades: tool reach, swing speed, walking speed, harvest value, growth speed, bag size and rock tools.
 - About 1,070 rocks lie in clusters across the field: stones, rocks, big rocks and boulders. Nothing can be sown on a rock. To clear one, switch to Plow mode with a rock tool strong enough for its size; each rock costs coins to remove. Rock tools run from a crowbar in 300 to a matter dissolver in 3000, with a new one and a new price in every age, and later tools make each rock cheaper to clear.
 - When you have enough coins, buy your way into the next age. Each age brings new crops, new tools and a new look.
