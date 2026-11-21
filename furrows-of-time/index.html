@@ -387,6 +387,10 @@ svg{display:block}
     <section><h2>Tools</h2><div id="shop"></div></section>
     <footer>
       <div id="stats"></div>
+      <div class="row audio" id="sellRow"><span>Empty bag</span>
+        <button class="btn quiet" type="button" data-autosell="on">Automatically</button>
+        <button class="btn quiet" type="button" data-autosell="off">By hand</button>
+      </div>
       <div class="row audio" id="sfxRow"><span>Sound effects</span>
         <button class="btn quiet" type="button" data-sfx="on">On</button>
         <button class="btn quiet" type="button" data-sfx="off">Off</button>
@@ -628,7 +632,7 @@ const Game = (() => {
 
   function fresh(){
     const lv = {}; for (const t of TRACKS) lv[t.id] = 0;
-    return {v:6, coins:0, earned:0, era:1, seed:'wheat', mode:'all', eraPlow:0, eraHarv:{}, lv, bag:0, bagValue:0, sold:0, harvests:0, sown:0, worked:0, growing:0, clock:0, done:false,
+    return {v:6, coins:0, earned:0, era:1, seed:'wheat', mode:'all', autoSell:true, eraPlow:0, eraHarv:{}, lv, bag:0, bagValue:0, sold:0, harvests:0, sown:0, worked:0, growing:0, clock:0, done:false,
       px:N / 2 + .5, pz:3.5, yaw:Math.PI, pitch:-.32, work:true};
   }
   // Rocks lie in clusters across the field, the same on every farm, clear of the start.
@@ -1183,6 +1187,7 @@ const Game = (() => {
     if (isFinite(s.pitch)) S.pitch = clamp(+s.pitch, -1.2, .5);
     S.work = s.work !== false;
     S.mode = MODES.includes(s.mode) ? s.mode : 'all';
+    S.autoSell = s.autoSell !== false;
     S.eraPlow = Math.max(0, +s.eraPlow || 0); S.eraHarv = {};
     if (s.eraHarv && typeof s.eraHarv === 'object') for (const id in s.eraHarv) if (cropById[id]) S.eraHarv[id] = Math.max(0, +s.eraHarv[id] || 0);
     let k = 0;
@@ -2303,6 +2308,13 @@ const Game = (() => {
     if (!G.advance(S)) return;
     R = G.rates(S); openShop(false); applyEra(); paintHud(true); save(); showAge(); sound('age'); music.restyle();
   }
+  let autoSoldAt = 0;
+  function paintSellMode(){ for (const b of document.querySelectorAll('[data-autosell]')) b.setAttribute('aria-pressed', String((b.dataset.autosell === 'on') === (S.autoSell !== false))); }
+  $('sellRow').addEventListener('click', e => {
+    const b = e.target.closest('[data-autosell]'); if (!b) return;
+    S.autoSell = b.dataset.autosell === 'on'; paintSellMode(); paintHud(true); save();
+    toast('sellmode', S.autoSell ? 'Your bag now empties by itself at a barn or next to a worker.' : 'Your bag now empties only when you tap the button.', 0);
+  });
   function emptyBag(){
     if (!G.canSell(S)) return;
     const helper = G.nearestBarn(S.px, S.pz).dist > G.SELL_RANGE ? G.helperNear(S) : null;
@@ -2338,7 +2350,7 @@ const Game = (() => {
       row.innerHTML = '<span>Erase this farm and go back to the year 300?</span><button class="btn" id="resetYes" type="button">Erase farm</button><button class="btn quiet" id="resetNo" type="button">Keep farming</button>';
     else if (id === 'resetYes' || id === 'resetNo'){
       row.innerHTML = '<button class="btn quiet" id="reset" type="button">Start over</button>';
-      if (id === 'resetYes'){ S = G.fresh(); F = G.freshField(); R = G.rates(S); setRig(); paintAll(); applyEra(); setWork(true); setMode('all'); artMarkers(); paintHud(true); openShop(false); showLocPick(); }
+      if (id === 'resetYes'){ S = G.fresh(); F = G.freshField(); R = G.rates(S); setRig(); paintAll(); applyEra(); setWork(true); setMode('all'); paintSellMode(); artMarkers(); paintHud(true); openShop(false); showLocPick(); }
     }
   });
 
@@ -2402,6 +2414,7 @@ const Game = (() => {
     }
     const sb = $('sell'), canSell = near && S.bag > 0;
     if (sb.hidden === canSell) sb.hidden = !canSell;
+    if (canSell && S.autoSell !== false && performance.now() - autoSoldAt > 2000){ autoSoldAt = performance.now(); emptyBag(); return; }
     if (canSell){ const st = (helper ? 'Give bag to ' + helper.name : 'Empty bag') + ' · +' + fmt(S.bagValue); if (sb.textContent !== st) sb.textContent = st; }
 
     let tip = '';
@@ -3140,7 +3153,7 @@ const Game = (() => {
   function start(data){
     const got = G.unpack(data && data.v ? data : readLocal());
     S = got.S; F = got.F; R = G.rates(S);
-    setGfx(gfx); setRig(); paintAll(); applyEra(); setWork(S.work); setMode(S.mode); resize(); paintHud(true); paintMap();
+    setGfx(gfx); setRig(); paintAll(); applyEra(); setWork(S.work); setMode(S.mode); paintSellMode(); resize(); paintHud(true); paintMap();
     started = true;
     if (!S.loc) showLocPick();
     artMarkers();

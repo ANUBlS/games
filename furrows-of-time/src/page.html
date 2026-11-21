@@ -387,6 +387,10 @@ svg{display:block}
     <section><h2>Tools</h2><div id="shop"></div></section>
     <footer>
       <div id="stats"></div>
+      <div class="row audio" id="sellRow"><span>Empty bag</span>
+        <button class="btn quiet" type="button" data-autosell="on">Automatically</button>
+        <button class="btn quiet" type="button" data-autosell="off">By hand</button>
+      </div>
       <div class="row audio" id="sfxRow"><span>Sound effects</span>
         <button class="btn quiet" type="button" data-sfx="on">On</button>
         <button class="btn quiet" type="button" data-sfx="off">Off</button>
@@ -1503,6 +1507,13 @@ svg{display:block}
     if (!G.advance(S)) return;
     R = G.rates(S); openShop(false); applyEra(); paintHud(true); save(); showAge(); sound('age'); music.restyle();
   }
+  let autoSoldAt = 0;
+  function paintSellMode(){ for (const b of document.querySelectorAll('[data-autosell]')) b.setAttribute('aria-pressed', String((b.dataset.autosell === 'on') === (S.autoSell !== false))); }
+  $('sellRow').addEventListener('click', e => {
+    const b = e.target.closest('[data-autosell]'); if (!b) return;
+    S.autoSell = b.dataset.autosell === 'on'; paintSellMode(); paintHud(true); save();
+    toast('sellmode', S.autoSell ? 'Your bag now empties by itself at a barn or next to a worker.' : 'Your bag now empties only when you tap the button.', 0);
+  });
   function emptyBag(){
     if (!G.canSell(S)) return;
     const helper = G.nearestBarn(S.px, S.pz).dist > G.SELL_RANGE ? G.helperNear(S) : null;
@@ -1538,7 +1549,7 @@ svg{display:block}
       row.innerHTML = '<span>Erase this farm and go back to the year 300?</span><button class="btn" id="resetYes" type="button">Erase farm</button><button class="btn quiet" id="resetNo" type="button">Keep farming</button>';
     else if (id === 'resetYes' || id === 'resetNo'){
       row.innerHTML = '<button class="btn quiet" id="reset" type="button">Start over</button>';
-      if (id === 'resetYes'){ S = G.fresh(); F = G.freshField(); R = G.rates(S); setRig(); paintAll(); applyEra(); setWork(true); setMode('all'); artMarkers(); paintHud(true); openShop(false); showLocPick(); }
+      if (id === 'resetYes'){ S = G.fresh(); F = G.freshField(); R = G.rates(S); setRig(); paintAll(); applyEra(); setWork(true); setMode('all'); paintSellMode(); artMarkers(); paintHud(true); openShop(false); showLocPick(); }
     }
   });
 
@@ -1602,6 +1613,7 @@ svg{display:block}
     }
     const sb = $('sell'), canSell = near && S.bag > 0;
     if (sb.hidden === canSell) sb.hidden = !canSell;
+    if (canSell && S.autoSell !== false && performance.now() - autoSoldAt > 2000){ autoSoldAt = performance.now(); emptyBag(); return; }
     if (canSell){ const st = (helper ? 'Give bag to ' + helper.name : 'Empty bag') + ' · +' + fmt(S.bagValue); if (sb.textContent !== st) sb.textContent = st; }
 
     let tip = '';
@@ -2340,7 +2352,7 @@ svg{display:block}
   function start(data){
     const got = G.unpack(data && data.v ? data : readLocal());
     S = got.S; F = got.F; R = G.rates(S);
-    setGfx(gfx); setRig(); paintAll(); applyEra(); setWork(S.work); setMode(S.mode); resize(); paintHud(true); paintMap();
+    setGfx(gfx); setRig(); paintAll(); applyEra(); setWork(S.work); setMode(S.mode); paintSellMode(); resize(); paintHud(true); paintMap();
     started = true;
     if (!S.loc) showLocPick();
     artMarkers();

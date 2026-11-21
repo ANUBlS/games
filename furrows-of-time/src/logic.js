@@ -194,7 +194,7 @@ const Game = (() => {
 
   function fresh(){
     const lv = {}; for (const t of TRACKS) lv[t.id] = 0;
-    return {v:6, coins:0, earned:0, era:1, seed:'wheat', mode:'all', eraPlow:0, eraHarv:{}, lv, bag:0, bagValue:0, sold:0, harvests:0, sown:0, worked:0, growing:0, clock:0, done:false,
+    return {v:6, coins:0, earned:0, era:1, seed:'wheat', mode:'all', autoSell:true, eraPlow:0, eraHarv:{}, lv, bag:0, bagValue:0, sold:0, harvests:0, sown:0, worked:0, growing:0, clock:0, done:false,
       px:N / 2 + .5, pz:3.5, yaw:Math.PI, pitch:-.32, work:true};
   }
   // Rocks lie in clusters across the field, the same on every farm, clear of the start.
@@ -749,6 +749,7 @@ const Game = (() => {
     if (isFinite(s.pitch)) S.pitch = clamp(+s.pitch, -1.2, .5);
     S.work = s.work !== false;
     S.mode = MODES.includes(s.mode) ? s.mode : 'all';
+    S.autoSell = s.autoSell !== false;
     S.eraPlow = Math.max(0, +s.eraPlow || 0); S.eraHarv = {};
     if (s.eraHarv && typeof s.eraHarv === 'object') for (const id in s.eraHarv) if (cropById[id]) S.eraHarv[id] = Math.max(0, +s.eraHarv[id] || 0);
     let k = 0;
