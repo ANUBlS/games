@@ -26,6 +26,24 @@ A first-person farming game in the browser. You start in the year 300 with bare 
 
 The other ages (300, 1940 and 2100) only ask for coins.
 
+## Seasons and weather
+
+- The year turns through spring, summer, autumn and winter, 4 minutes each. Every crop can only be sown in certain seasons (wheat in spring, autumn or winter, tomato and cotton only in summer). In winter, crops that are not winter-hardy stop growing until spring. The seeds list greys out what cannot be sown now.
+- Weather changes every minute or so. Rain makes crops grow 1.5 times faster, but now and then washes away a small patch. A storm marks an area with an orange ring, and 18 seconds later floods it, washing away every crop there. Winter brings snow, which covers the land.
+- Autumn turns the trees orange, and snow turns the field white.
+
+## Fertilizer
+
+From 1850 on, many crops need fertilizer to sow: cotton and corn 1 unit per plot, sunflower and strawberry 2, moonberry 3. Soybean needs none. Buy fertilizer in the shop; its price follows the age you are in.
+
+## Farm location
+
+When you start, pick where your farm is: America, Russia, Azerbaijan, China, India, Brazil, France or Egypt. Each pays more for the crops it is known for (corn in America, wheat in Russia, cotton in Azerbaijan and Egypt, and so on). You can move later, for a fee.
+
+## Gold
+
+About one rock in thirty holds a gold nugget. Which rocks is hidden until you clear them, and a nugget pays far more than clearing the rock costs.
+
 ## Ages
 
 | Year | Age | New crops | New tool you can see |

@@ -113,6 +113,29 @@ const Game = (() => {
     for (const b of BARNS){ const d = Math.hypot(b[0] - x, b[1] - z); if (d < bd){ bd = d; best = b; } }
     return {barn:best, dist:bd};
   }
+  // Seasons each crop can be sown in (0 spring, 1 summer, 2 autumn, 3 winter) and the fertilizer it needs to sow.
+  // Crops that can be sown in winter keep growing through it; the rest lie dormant until spring.
+  const CROP_EXTRA = {
+    wheat:[[0, 2, 3], 0], barley:[[0, 1], 0], cabbage:[[0, 2, 3], 0], potato:[[0, 1], 0], tomato:[[1], 0],
+    cotton:[[1], 1], corn:[[0, 1], 1], sunflower:[[1], 2], soybean:[[1, 2], 0], strawberry:[[0, 1], 2],
+    glowrice:[[0, 1, 2, 3], 1], moonberry:[[0, 1, 2, 3], 3], starbloom:[[0, 1, 2, 3], 2]
+  };
+  for (const c of CROPS){ const x = CROP_EXTRA[c.id]; c.seasons = x[0]; c.fert = x[1]; c.hardy = x[0].includes(3); }
+  const SEASONS = ['Spring', 'Summer', 'Autumn', 'Winter'], SEASON_LEN = 240;
+  // Switches for the price tuner, which simulates a player without seasons or fertilizer.
+  const OPTS = {seasons:true, fert:true};
+  // Where the farm is changes what each crop sells for.
+  const LOCS = [
+    {id:'america',    name:'America',    mult:{corn:1.6, soybean:1.4, wheat:1.1, sunflower:.9}},
+    {id:'russia',     name:'Russia',     mult:{wheat:1.6, barley:1.4, sunflower:1.4, potato:1.2, cotton:.7}},
+    {id:'azerbaijan', name:'Azerbaijan', mult:{cotton:1.5, tomato:1.4, wheat:1.2, strawberry:1.2, corn:.8}},
+    {id:'china',      name:'China',      mult:{glowrice:1.6, cabbage:1.4, soybean:1.2, tomato:1.2, sunflower:.8}},
+    {id:'india',      name:'India',      mult:{cotton:1.4, glowrice:1.5, wheat:1.2, sunflower:.8}},
+    {id:'brazil',     name:'Brazil',     mult:{soybean:1.6, corn:1.3, cotton:1.2, strawberry:1.2, wheat:.8}},
+    {id:'france',     name:'France',     mult:{wheat:1.3, barley:1.2, sunflower:1.3, strawberry:1.3, cabbage:1.1}},
+    {id:'egypt',      name:'Egypt',      mult:{cotton:1.6, tomato:1.3, potato:1.2, corn:.8}}
+  ];
+  const locById = Object.fromEntries(LOCS.map(l => [l.id, l]));
   const cropById = Object.fromEntries(CROPS.map(c => [c.id, c]));
   const trackById = Object.fromEntries(TRACKS.map(t => [t.id, t]));
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
@@ -153,7 +176,30 @@ const Game = (() => {
     for (const t of TRACKS) r[t.id] = t.tiers[S.lv[t.id]].v;
     return r;
   }
-  const harvestValue = (crop, r) => Math.round(crop.value * r.yield);
+  const locMult = (S, crop) => (S && S.loc && locById[S.loc] && locById[S.loc].mult[crop.id]) || 1;
+  const harvestValue = (crop, r, S) => Math.round(crop.value * r.yield * locMult(S, crop));
+  const season = S => Math.floor((S.yearT || 0) / SEASON_LEN) % 4;
+  const inSeason = (S, crop) => !OPTS.seasons || crop.seasons.includes(season(S));
+  // Fertilizer is priced off the newest crop of the age you are in.
+  function fertPrice(S){
+    let newest = CROPS[0]; for (const c of CROPS) if (c.era <= S.era) newest = c;
+    return nice(newest.value * .15);
+  }
+  function buyFert(S, units){
+    const cost = fertPrice(S) * units;
+    if (units <= 0 || S.coins < cost) return false;
+    S.coins -= cost; S.fert = (S.fert || 0) + units; return true;
+  }
+  const moveCost = S => S.loc ? nice(M[S.era - 1] * 2) : 0;
+  function setLoc(S, id){
+    if (!locById[id] || id === S.loc) return false;
+    const cost = moveCost(S);
+    if (S.coins < cost) return false;
+    S.coins -= cost; S.loc = id; return true;
+  }
+  // About one rock in twenty-five hides a gold nugget; which ones is fixed per plot but not shown.
+  const goldAt = k => { let h = (k * 2654435761) >>> 0; h ^= h >>> 15; h = Math.imul(h, 2246822519) >>> 0; h = (h ^ (h >>> 13)) >>> 0; return h % 1000 < 40; };
+  const goldValue = (S, size) => nice(M[S.era - 1] * .35 * size);
   const growSeconds = (crop, r) => crop.grow / r.water;
 
   // Work modes: 'all' does whichever step each plot needs; the others do only their own step.
@@ -167,6 +213,8 @@ const Game = (() => {
     const ripeAt = S.clock + growSeconds(CROPS[seedIdx], r);
     const m = S.mode || 'all', doPlow = m === 'all' || m === 'plow', doSow = m === 'all' || m === 'sow', doReap = m === 'all' || m === 'harvest';
     let got = 0, value = 0, n = 0, blocked = 0, weak = 0, poor = 0, skipped = 0, spent = 0, cleared = 0, plowed = 0, sowed = 0;
+    let gold = 0, goldCoins = 0, noFert = 0, offSeason = 0;
+    const seedCrop = CROPS[seedIdx], fertNeed = OPTS.fert ? seedCrop.fert : 0, seasonOk = inSeason(S, seedCrop);
     const eh = S.eraHarv || (S.eraHarv = {});
     for (let o = 0; o < off.length; o += 2){
       const i = ci + off[o], j = cj + off[o + 1];
@@ -179,6 +227,7 @@ const Game = (() => {
         const fee = rockFee(S, rk);
         if (S.coins < fee){ poor = Math.max(poor, fee); continue; }
         S.coins -= fee; spent += fee; F.rock[k] = 0; cleared++; S.rocks = (S.rocks || 0) + 1;
+        if (goldAt(k)){ const g = goldValue(S, rk); S.coins += g; S.earned += g; gold++; goldCoins += g; S.gold = (S.gold || 0) + 1; }
         n++; if (changed) changed.push(k);
         continue;
       }
@@ -186,11 +235,13 @@ const Game = (() => {
         F.st[k] = PLOWED; plowed++;
         if (!F.ever[k]){ F.ever[k] = 1; S.worked++; }
       } else if (st === PLOWED && doSow){
+        if (!seasonOk){ offSeason++; continue; }
+        if (fertNeed){ if ((S.fert || 0) < fertNeed){ noFert++; continue; } S.fert -= fertNeed; }
         sowed++; F.st[k] = GROWING; F.crop[k] = seedIdx; F.ripe[k] = ripeAt; S.growing++; S.sown++;
       } else if (st === RIPE && doReap){
         if (S.bag >= r.bag){ blocked++; continue; }
         const cid = CROPS[F.crop[k]].id; eh[cid] = (eh[cid] || 0) + 1;
-        F.st[k] = WILD; S.bag++; got++; value += harvestValue(CROPS[F.crop[k]], r); S.harvests++;
+        F.st[k] = WILD; S.bag++; got++; value += harvestValue(CROPS[F.crop[k]], r, S); S.harvests++;
       } else if (m === 'plow' && (st === GROWING || st === RIPE)){
         // Plow mode turns crops under: growing or ripe, they go back to bare plowed soil and are lost.
         if (st === GROWING) S.growing--;
@@ -199,9 +250,66 @@ const Game = (() => {
       n++; if (changed) changed.push(k);
     }
     S.bagValue += value; S.eraPlow = (S.eraPlow || 0) + plowed;
-    return {got, value, n, blocked, weak, poor, skipped, spent, cleared, plowed, sowed};
+    return {got, value, n, blocked, weak, poor, skipped, spent, cleared, plowed, sowed, gold, goldCoins, noFert, offSeason};
   }
   // What removing one rock costs now: bigger rocks and later ages cost more, better tools less.
+  // Weather. Each spell lasts 40 to 90 seconds; the season sets the odds. Rain speeds growth and now
+  // and then washes out a small patch; a storm warns, then floods an area near you; winter brings snow.
+  const WX_ODDS = [
+    {clear:.5,  rain:.4,  storm:.1,  snow:0},
+    {clear:.74, rain:.14, storm:.12, snow:0},
+    {clear:.45, rain:.42, storm:.13, snow:0},
+    {clear:.32, rain:.08, storm:0,   snow:.6}];
+  const FLOOD_WARN = 18;
+  function wash(S, F, x, z, r, changed){
+    let lost = 0; const R2 = r * r;
+    for (let j = Math.max(0, Math.floor(z - r)); j <= Math.min(N - 1, Math.ceil(z + r)); j++)
+      for (let i = Math.max(0, Math.floor(x - r)); i <= Math.min(N - 1, Math.ceil(x + r)); i++){
+        const dx = i + .5 - x, dz = j + .5 - z;
+        if (dx * dx + dz * dz > R2) continue;
+        const k = j * N + i, st = F.st[k];
+        if (st === GROWING || st === RIPE){ if (st === GROWING) S.growing--; F.st[k] = PLOWED; lost++; if (changed) changed.push(k); }
+      }
+    S.lostToWeather = (S.lostToWeather || 0) + lost;
+    return lost;
+  }
+  function weatherStep(S, F, dt, px, pz, rnd, changed){
+    const ev = [];
+    S.yearT = (S.yearT || 0) + dt;
+    const w = S.wx || (S.wx = {kind:'clear', left:50, dur:50});
+    const s = season(S);
+    if (S.lastSeason !== s){
+      const first = S.lastSeason === undefined;
+      S.lastSeason = s;
+      if (!first) ev.push({type:'season', season:s});
+      if (s === 3 && w.kind !== 'snow' && rnd() < .7){ w.left = 0; }
+      if (s !== 3 && w.kind === 'snow') w.left = 0;
+    }
+    w.left -= dt;
+    if (w.kind === 'storm' && !w.flooded && w.dur - w.left >= FLOOD_WARN){
+      w.flooded = true;
+      const lost = wash(S, F, w.fx, w.fz, w.fr, changed);
+      ev.push({type:'flood', x:w.fx, z:w.fz, r:w.fr, lost});
+    }
+    if (w.kind === 'rain' && rnd() < dt / 32){
+      const a = rnd() * Math.PI * 2, d = 6 + rnd() * 26, r = 2 + rnd() * 2.5;
+      const x = Math.max(2, Math.min(N - 2, px + Math.cos(a) * d)), z = Math.max(2, Math.min(N - 2, pz + Math.sin(a) * d));
+      const lost = wash(S, F, x, z, r, changed);
+      if (lost) ev.push({type:'washout', x, z, r, lost});
+    }
+    if (w.left <= 0){
+      const odds = WX_ODDS[s]; let q = rnd(), kind = 'clear';
+      for (const k of ['clear', 'rain', 'storm', 'snow']){ if (q < odds[k]){ kind = k; break; } q -= odds[k]; }
+      w.kind = kind; w.dur = w.left = 40 + rnd() * 50; w.flooded = false;
+      if (kind === 'storm'){
+        const a = rnd() * Math.PI * 2, d = 8 + rnd() * 40;
+        w.fx = Math.max(10, Math.min(N - 10, px + Math.cos(a) * d)); w.fz = Math.max(10, Math.min(N - 10, pz + Math.sin(a) * d)); w.fr = 10 + rnd() * 14;
+        w.dur = w.left = Math.max(w.left, FLOOD_WARN + 30);
+      }
+      ev.push({type:'weather', kind});
+    }
+    return ev;
+  }
   function rockFee(S, size){
     const tier = trackById.rock.tiers[S.lv.rock || 0];
     return nice(M[S.era - 1] * .02 * size * tier.fk);
@@ -213,11 +321,18 @@ const Game = (() => {
     S.coins += v; S.earned += v; S.sold += S.bag; S.bag = 0; S.bagValue = 0;
     return v;
   }
-  function ripen(S, F, changed){
+  function ripen(S, F, changed, dt){
     if (!S.growing) return 0;
-    let n = 0; const st = F.st, ripe = F.ripe, now = S.clock;
-    for (let k = 0; k < st.length; k++) if (st[k] === GROWING && ripe[k] <= now){
-      st[k] = RIPE; n++; if (changed) changed.push(k);
+    let n = 0; const st = F.st, ripe = F.ripe, now = S.clock, crop = F.crop;
+    // Growth rate by crop this tick: rain 1.5x, winter stops crops that are not winter-hardy.
+    let shift = null;
+    if (dt > 0 && OPTS.seasons){
+      const winter = season(S) === 3, wet = S.wx && (S.wx.kind === 'rain' || S.wx.kind === 'storm');
+      if (winter || wet){ shift = CROPS.map(c => dt * (1 - (winter && !c.hardy ? 0 : wet ? 1.5 : 1))); }
+    }
+    for (let k = 0; k < st.length; k++) if (st[k] === GROWING){
+      if (shift) ripe[k] += shift[crop[k]];
+      if (ripe[k] <= now){ st[k] = RIPE; n++; if (changed) changed.push(k); }
     }
     S.growing -= n;
     return n;
@@ -314,9 +429,18 @@ const Game = (() => {
       }
     }
     S.rocks = Math.max(0, +s.rocks || 0);
+    S.gold = Math.max(0, +s.gold || 0);
+    S.fert = Math.max(0, Math.floor(+s.fert || 0));
+    S.yearT = Math.max(0, +s.yearT || 0);
+    S.loc = locById[s.loc] ? s.loc : undefined;
+    S.lostToWeather = Math.max(0, +s.lostToWeather || 0);
+    if (s.wx && ['clear', 'rain', 'storm', 'snow'].includes(s.wx.kind) && isFinite(s.wx.left)){
+      S.wx = {kind:s.wx.kind, left:Math.min(90, +s.wx.left), dur:+s.wx.dur || 60, flooded:!!s.wx.flooded,
+        fx:clamp(+s.wx.fx || N / 2, 0, N), fz:clamp(+s.wx.fz || N / 2, 0, N), fr:clamp(+s.wx.fr || 12, 4, 30)};
+    }
     return {S, F};
   }
 
-  return {N, WILD, PLOWED, GROWING, RIPE, MODES, REQS, reqStatus, reqMet, ROCK_NAMES, rockFee, BARNS, SELL_RANGE, nearestBarn, canSell, sell, ERAS, CROPS, TRACKS, M, cropById, trackById, cellsIn, offsets, reprice,
+  return {N, WILD, PLOWED, GROWING, RIPE, OPTS, SEASONS, SEASON_LEN, LOCS, locById, locMult, season, inSeason, fertPrice, buyFert, moveCost, setLoc, goldAt, goldValue, weatherStep, wash, FLOOD_WARN, MODES, REQS, reqStatus, reqMet, ROCK_NAMES, rockFee, BARNS, SELL_RANGE, nearestBarn, canSell, sell, ERAS, CROPS, TRACKS, M, cropById, trackById, cellsIn, offsets, reprice,
     fresh, freshField, rates, harvestValue, growSeconds, swing, ripen, nextTier, buy, nextEra, advance, setSeed, pack, unpack};
 })();

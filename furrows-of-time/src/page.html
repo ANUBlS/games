@@ -168,6 +168,21 @@ svg{display:block}
 .next .reqbox{flex-basis:100%}
 .audio .btn{min-height:34px; padding:5px 10px}
 .audio .btn[aria-pressed="true"]{background:var(--accent); color:var(--on-accent); border-color:var(--accent)}
+.wx{padding:3px 9px; font-size:.78rem; font-variant-numeric:tabular-nums; display:flex; gap:6px; align-items:center}
+.wx b{font-weight:700}
+.wx.storm{border-color:#c0392b; box-shadow:0 0 0 2px #e67e22}
+.seed .sea{display:block; font-size:.68rem; color:var(--muted)}
+.seed .sea em{font-style:normal; font-weight:700; color:var(--accent)}
+.seed.off{opacity:.62}
+.chips{display:flex; flex-wrap:wrap; gap:6px}
+.chips .btn{min-height:36px; padding:6px 11px; font-weight:600}
+.chips .btn[aria-pressed="true"]{background:var(--accent); color:var(--on-accent); border-color:var(--accent)}
+.note{margin:0 0 8px; font-size:.84rem; color:var(--muted)}
+.locs{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+.locs button{text-align:left; background:var(--panel); border:2px solid var(--line); border-radius:var(--radius); padding:8px 10px; cursor:pointer}
+.locs button b{display:block; font-size:.95rem}
+.locs button span{display:block; font-size:.72rem; color:var(--muted)}
+.locs button[aria-pressed="true"]{border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent)}
 .toast{position:absolute; right:14px; bottom:146px; max-width:min(78%,320px); padding:7px 11px; font-size:.86rem; pointer-events:none}
 .modes{position:absolute; right:14px; bottom:94px; display:flex; gap:4px; padding:4px}
 .modes button{border:0; border-radius:calc(var(--radius) + 2px); background:transparent; color:var(--ink); font-weight:700; font-size:.86rem; min-height:38px; padding:0 10px; cursor:pointer}
@@ -312,6 +327,7 @@ svg{display:block}
   <div class="map panel" aria-hidden="true"><canvas id="map" width="256" height="256"></canvas><i id="me"></i></div>
   <div class="bagrow">
     <div class="bag panel" id="bagBox"><span id="bagText"></span><div class="bar"><i id="bagFill"></i></div></div>
+    <div class="wx panel" id="wxChip"></div>
     <div class="barnhint panel" id="barnHint" hidden><i id="barnArrow"></i><span id="barnText"></span></div>
   </div>
   <button class="btn" id="enter" type="button" hidden></button>
@@ -335,7 +351,9 @@ svg{display:block}
     <header><h1 id="sheetTitle">Furrows of Time</h1><button class="btn quiet" id="closeShop" type="button">Back to the field</button></header>
     <section class="next"><p id="nextText"></p><button class="btn" id="advance" type="button"></button><div class="reqbox" id="reqBox"></div></section>
     <ol class="ages" id="ages" aria-label="The twelve ages"></ol>
-    <section><h2>Seeds</h2><div class="seeds" id="seeds"></div></section>
+    <section><h2>Seeds</h2><p class="note" id="seedNote"></p><div class="seeds" id="seeds"></div></section>
+    <section id="fertSec" hidden><h2>Fertilizer</h2><p class="note" id="fertNote"></p><div class="chips" id="fertBuy"></div></section>
+    <section><h2>Farm location</h2><p class="note" id="locNote"></p><div class="locs" id="locList"></div></section>
     <section><h2>Tools</h2><div id="shop"></div></section>
     <footer>
       <div id="stats"></div>
@@ -368,6 +386,14 @@ svg{display:block}
     <p id="veilBlurb"></p>
     <ul id="veilList"></ul>
     <button class="btn" id="veilGo" type="button">Back to the field</button>
+  </div>
+</div>
+
+<div class="veil" id="locVeil" role="dialog" aria-modal="true" aria-labelledby="locTitle">
+  <div class="card">
+    <div class="name" id="locTitle">Where is your farm?</div>
+    <p>Each country pays more for the crops it is known for. You can move later, for a fee.</p>
+    <div class="locs" id="locPick"></div>
   </div>
 </div>
 
@@ -592,9 +618,10 @@ svg{display:block}
     }
     for (let n = 0; n < 5000; n++){ const v = 90 + r() * 150 | 0; g.fillStyle = 'rgba(' + v + ',' + v + ',' + v + ',.55)'; g.beginPath(); g.arc(r() * 512, r() * 512, .8 + r() * 3.2, 0, 7); g.fill(); }
   });
+  const fieldSnow = {value:0};
   fieldMat.onBeforeCompile = sh => {
-    sh.uniforms.tGrass = {value:grassDetail}; sh.uniforms.tSoil = {value:soilDetail};
-    sh.fragmentShader = 'uniform sampler2D tGrass; uniform sampler2D tSoil;\n' + sh.fragmentShader.replace('#include <map_fragment>', [
+    sh.uniforms.tGrass = {value:grassDetail}; sh.uniforms.tSoil = {value:soilDetail}; sh.uniforms.uSnow = fieldSnow;
+    sh.fragmentShader = 'uniform sampler2D tGrass; uniform sampler2D tSoil; uniform float uSnow;\n' + sh.fragmentShader.replace('#include <map_fragment>', [
       '#ifdef USE_MAP',
       'vec4 plot = texture2D(map, vUv);',
       'float st = plot.a;',
@@ -605,6 +632,8 @@ svg{display:block}
       'float soil = smoothstep(0.12, 0.3, st) * (1.0 - smoothstep(0.75, 0.92, st));',
       'float det = mix(gd * 1.25, sd * 1.35, soil);',
       'diffuseColor.rgb *= plot.rgb * det;',
+      'float wildness = 1.0 - smoothstep(0.05, 0.2, st);',
+      'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.89, 0.93) * (0.9 + 0.1 * gd), clamp(uSnow * mix(0.4, 0.92, wildness), 0.0, 1.0));',
       '#endif'].join('\n'));
   };
   fieldMat.customProgramCacheKey = () => 'field-detail';
@@ -1219,6 +1248,10 @@ svg{display:block}
     dust.material.opacity = night ? .3 : .75; dust.material.color.copy(LIN(night ? 0xb9a8ff : 0xfff0c0));
     cropsDirty = true;
     $('when').textContent = era.year + ' · ' + era.name;
+    wxBase.top.copy(skyU.top.value); wxBase.hor.copy(skyU.horizon.value); wxBase.fog.copy(scene.fog.color); wxBase.sunCol.copy(skyU.sunCol.value);
+    wxBase.sunI = sun.intensity; wxBase.hemiI = hemi.intensity; wxBase.near = scene.fog.near; wxBase.far = scene.fog.far;
+    wxBase.tree.copy(treeMat.color); wxBase.grass.copy(grassBase); wxBase.outer.copy(outerMat.color); wxBase.hill.copy(hillMat.color);
+    wxBase.cloud.copy(clouds[0].material.color); wxBase.cloudOp = clouds[0].material.opacity;
     buildShop();
   }
   function resize(){
@@ -1277,9 +1310,29 @@ svg{display:block}
   function buildShop(){
     const era = S.era;
     $('ages').innerHTML = G.ERAS.map(e => '<li class="' + (e.id < era ? 'done' : e.id === era ? 'now' : '') + '">' + e.year + '</li>').join('');
-    $('seeds').innerHTML = G.CROPS.filter(c => c.era <= era).reverse().map(c =>
-      '<button type="button" class="seed" id="seed-' + c.id + '" data-seed="' + c.id + '" aria-pressed="' + (S.seed === c.id) + '">' + cropIcon(c.id) +
-      '<span><b>' + c.name + '</b><span>' + fmt(G.harvestValue(c, R)) + ' coins · ' + Math.round(G.growSeconds(c, R)) + 's</span></span></button>').join('');
+    const sNow = G.season(S), SN = G.SEASONS;
+    $('seedNote').textContent = 'It is ' + SN[sNow].toLowerCase() + '. Greyed seeds cannot be sown this season.' + (sNow === 3 ? ' Only winter crops grow in winter; the rest wait for spring.' : '');
+    $('seeds').innerHTML = G.CROPS.filter(c => c.era <= era).reverse().map(c => {
+      const ok = c.seasons.includes(sNow), m = G.locMult(S, c);
+      const seas = c.seasons.length === 4 ? 'Any season' : c.seasons.map(q => q === sNow ? '<em>' + SN[q] + '</em>' : SN[q]).join(', ');
+      return '<button type="button" class="seed' + (ok ? '' : ' off') + '" id="seed-' + c.id + '" data-seed="' + c.id + '" aria-pressed="' + (S.seed === c.id) + '">' + cropIcon(c.id) +
+        '<span><b>' + c.name + '</b><span>' + fmt(G.harvestValue(c, R, S)) + ' coins' + (m !== 1 ? ' (' + (m > 1 ? '+' : '') + Math.round((m - 1) * 100) + '% here)' : '') + ' · ' + Math.round(G.growSeconds(c, R)) + 's</span>' +
+        '<span class="sea">' + seas + (c.fert ? ' · ' + c.fert + ' fertilizer' : '') + '</span></span></button>';
+    }).join('');
+    // fertilizer: shown once a crop you can grow needs it
+    const needs = G.CROPS.some(c => c.era <= era && c.fert);
+    $('fertSec').hidden = !needs;
+    if (needs){
+      const price = G.fertPrice(S), amounts = [100, 1000, 10000, 100000].filter(a => a <= Math.max(1000, R.bag * 4));
+      $('fertNote').textContent = 'You have ' + fmt(S.fert || 0) + ' units. One unit costs ' + fmt(price) + ' coins. Sowing a plot uses the units its crop needs.';
+      $('fertBuy').innerHTML = amounts.map(a => '<button type="button" class="btn quiet" data-fert="' + a + '"' + (S.coins < a * price ? ' disabled' : '') + '>Buy ' + fmt(a) + ' · ' + fmt(a * price) + '</button>').join('');
+    }
+    const cost = G.moveCost(S);
+    $('locNote').textContent = (S.loc ? 'Your farm is in ' + G.locById[S.loc].name + '. Moving costs ' + fmt(cost) + ' coins.' : 'Pick where your farm is.') + ' Prices change for the crops each country is known for.';
+    $('locList').innerHTML = G.LOCS.map(l => {
+      const best = Object.entries(l.mult).filter(([, v]) => v > 1).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id, v]) => G.cropById[id].name + ' +' + Math.round((v - 1) * 100) + '%').join(', ');
+      return '<button type="button" data-loc="' + l.id + '" aria-pressed="' + (S.loc === l.id) + '"' + (S.loc !== l.id && S.coins < cost ? ' disabled' : '') + '><b>' + l.name + '</b><span>' + best + '</span></button>';
+    }).join('');
     $('shop').innerHTML = G.TRACKS.map(t => {
       const cur = t.tiers[S.lv[t.id]], nx = G.nextTier(S, t.id);
       if (!nx) return '<div class="tool"><div><small>' + t.label + '</small><b>' + cur.name + '</b><p>' + t.say(cur.v) + '. The best there is.' + (t.id === 'rock' ? ' Each rock costs ' + fmt(G.rockFee(S, 1)) + ' to ' + fmt(G.rockFee(S, 4)) + ' coins to clear.' : '') + '</p></div></div>';
@@ -1308,7 +1361,7 @@ svg{display:block}
     for (const b of $('shop').querySelectorAll('[data-buy]')){
       const c = +b.dataset.cost; b.disabled = c < 0 || S.coins < c;
     }
-    $('stats').textContent = fmt(S.harvests) + ' harvests · ' + fmt(S.sold) + ' crops sold · ' + fmt(S.earned) + ' coins earned in all · ' + S.worked.toLocaleString('en-US') + ' of ' + (N * N).toLocaleString('en-US') + ' plots farmed';
+    $('stats').textContent = fmt(S.harvests) + ' harvests · ' + fmt(S.gold || 0) + ' gold nuggets found · ' + fmt(S.lostToWeather || 0) + ' crops lost to weather · ' + fmt(S.sold) + ' crops sold · ' + fmt(S.earned) + ' coins earned in all · ' + S.worked.toLocaleString('en-US') + ' of ' + (N * N).toLocaleString('en-US') + ' plots farmed';
   }
   function openShop(open){
     sheetOpen = open; $('sheet').hidden = !open; $('shade').hidden = !open;
@@ -1317,6 +1370,25 @@ svg{display:block}
   $('shopBtn').addEventListener('click', () => openShop(true));
   $('closeShop').addEventListener('click', () => openShop(false));
   $('shade').addEventListener('click', () => openShop(false));
+  $('fertBuy').addEventListener('click', e => {
+    const b = e.target.closest('[data-fert]');
+    if (b && G.buyFert(S, +b.dataset.fert)){ sound('buy'); buildShop(); paintHud(true); save(); }
+  });
+  $('locList').addEventListener('click', e => {
+    const b = e.target.closest('[data-loc]');
+    if (b && G.setLoc(S, b.dataset.loc)){ sound('buy'); buildShop(); paintHud(true); save(); toast('loc', 'Your farm is now in ' + G.locById[S.loc].name + '.'); }
+  });
+  function showLocPick(){
+    $('locPick').innerHTML = G.LOCS.map(l => {
+      const best = Object.entries(l.mult).filter(([, v]) => v > 1).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id, v]) => G.cropById[id].name + ' +' + Math.round((v - 1) * 100) + '%').join(', ');
+      return '<button type="button" data-loc="' + l.id + '"><b>' + l.name + '</b><span>' + best + '</span></button>';
+    }).join('');
+    $('locVeil').classList.add('open');
+  }
+  $('locPick').addEventListener('click', e => {
+    const b = e.target.closest('[data-loc]');
+    if (b && G.setLoc(S, b.dataset.loc)){ $('locVeil').classList.remove('open'); buildShop(); save(); }
+  });
   $('seeds').addEventListener('click', e => {
     const b = e.target.closest('.seed');
     if (b && G.setSeed(S, b.dataset.seed)) buildShop();
@@ -1411,7 +1483,8 @@ svg{display:block}
     }
     // bag and barn
     const full = S.bag >= R.bag, nb = G.nearestBarn(S.px, S.pz), near = nb.dist <= G.SELL_RANGE;
-    const bt = 'Bag <b>' + fmt(S.bag) + ' / ' + fmt(R.bag) + '</b>' + (S.bagValue ? ' · worth ' + fmt(S.bagValue) : '');
+    const bt = 'Bag <b>' + fmt(S.bag) + ' / ' + fmt(R.bag) + '</b>' + (S.bagValue ? ' · worth ' + fmt(S.bagValue) : '') +
+      (G.CROPS.some(c => c.era <= S.era && c.fert) ? ' · fertilizer <b>' + fmt(S.fert || 0) + '</b>' : '');
     if ($('bagText')._t !== bt){ $('bagText')._t = bt; $('bagText').innerHTML = bt; }
     $('bagFill').style.setProperty('--fill', Math.min(1, S.bag / R.bag).toFixed(3));
     $('bagBox').classList.toggle('full', full);
@@ -1450,6 +1523,15 @@ svg{display:block}
     clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2800);
   }
   function rockNews(res){
+    if (res.gold){ popGain('Gold nugget! +' + fmt(res.goldCoins), 'big'); sound('gold'); toast('gold', 'You found gold inside the rock: +' + fmt(res.goldCoins) + ' coins.', 1500); }
+    if (res.offSeason && !res.sowed){
+      const c = G.cropById[S.seed];
+      toast('season', c.name + ' cannot be sown in ' + G.SEASONS[G.season(S)].toLowerCase() + '. It is sown in ' + c.seasons.map(q => G.SEASONS[q].toLowerCase()).join(' or ') + '. Pick another seed in the shop.', 7000);
+    }
+    if (res.noFert && !res.sowed){
+      const c = G.cropById[S.seed];
+      toast('fert', c.name + ' needs ' + c.fert + ' fertilizer per plot. Buy fertilizer in the shop.', 7000);
+    }
     if (res.cleared) popGain((res.cleared > 1 ? res.cleared + ' rocks cleared · ' : 'Rock cleared · ') + '-' + fmt(res.spent), 'bagged');
     if (res.weak){
       let need = null;
@@ -1477,7 +1559,13 @@ svg{display:block}
   const AUDIO_KEY = 'furrows-of-time-audio';
   const audioPref = {sfx:'on', music:'auto'};
   try { Object.assign(audioPref, JSON.parse(localStorage.getItem(AUDIO_KEY) || '{}')); } catch (e) {}
-  let ac = null, master = null, sfxBus = null, musicBus = null, noiseBuf = null;
+  let ac = null, master = null, sfxBus = null, musicBus = null, noiseBuf = null, rainSrc = null, rainGain = null, rainLevel = -1;
+  function setRainSound(v){
+    if (!ac || !rainGain) return;
+    v = audioPref.sfx === 'on' ? v : 0;
+    if (Math.abs(v - rainLevel) < .02) return;
+    rainLevel = v; rainGain.gain.setTargetAtTime(v * .2, ac.currentTime, .6);
+  }
   function audioOn(){
     if (!ac){
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -1489,6 +1577,11 @@ svg{display:block}
       noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
       const d = noiseBuf.getChannelData(0); for (let a = 0; a < d.length; a++) d[a] = Math.random() * 2 - 1;
       music.restyle();
+      rainSrc = ac.createBufferSource(); rainSrc.buffer = noiseBuf; rainSrc.loop = true;
+      const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400;
+      const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 500;
+      rainGain = ac.createGain(); rainGain.gain.value = 0;
+      rainSrc.connect(lp); lp.connect(hp); hp.connect(rainGain); rainGain.connect(master); rainSrc.start();
     }
     if (ac.state === 'suspended') ac.resume().catch(() => {});
     return true;
@@ -1527,6 +1620,11 @@ svg{display:block}
     else if (kind === 'sell'){ [1318.5, 1568, 2093, 2637].forEach((f, a) => { tone(t + a * .07, f, .5, 'sine', .16); tone(t + a * .07, f * 2.01, .25, 'sine', .04); }); }
     else if (kind === 'buy'){ [784, 1175].forEach((f, a) => tone(t + a * .08, f, .3, 'triangle', .14)); }
     else if (kind === 'done'){ [659, 880, 1319].forEach((f, a) => tone(t + a * .09, f, .45, 'triangle', .14)); }
+    else if (kind === 'gold'){ [1568, 1976, 2349, 3136, 3951].forEach((f, a) => { tone(t + a * .05, f, .6, 'sine', .14); tone(t + a * .05, f * 1.5, .3, 'sine', .04); }); }
+    else if (kind === 'thunder'){ hiss(t, 2.6, 'lowpass', 520, 60, .7, 1.1); hiss(t + .05, .5, 'lowpass', 2600, 300, .6, .5); tone(t, 48, 2.2, 'sine', .5, null, .02, .7); }
+    else if (kind === 'flood'){ hiss(t, 2.2, 'bandpass', 380, 900, .8, .7); hiss(t + .3, 1.8, 'lowpass', 700, 200, .7, .5); }
+    else if (kind === 'warn'){ [660, 520, 660, 520].forEach((f, a) => tone(t + a * .22, f, .2, 'square', .05)); }
+    else if (kind === 'season'){ [523, 784, 1047, 784].forEach((f, a) => tone(t + a * .12, f, .7, 'sine', .1)); }
     else if (kind === 'age'){
       [[523, 0], [659, .14], [784, .28], [1047, .42]].forEach(([f, d]) => { tone(t + d, f, .9, 'sawtooth', .05); tone(t + d, f, 1.1, 'triangle', .12); });
       tone(t + .42, 523, 1.6, 'triangle', .1); tone(t + .42, 659, 1.6, 'triangle', .08);
@@ -1613,6 +1711,122 @@ svg{display:block}
   $('musicRow').addEventListener('click', e => { const b = e.target.closest('[data-music]'); if (b) setAudio('music', b.dataset.music); });
   paintAudio();
   document.addEventListener('visibilitychange', () => { if (!ac) return; if (document.hidden) ac.suspend().catch(() => {}); else ac.resume().catch(() => {}); });
+
+  /* ---------- weather and seasons ---------- */
+  const wxBase = {top:new THREE.Color(), hor:new THREE.Color(), fog:new THREE.Color(), sunCol:new THREE.Color(), tree:new THREE.Color(),
+    grass:new THREE.Color(), outer:new THREE.Color(), hill:new THREE.Color(), cloud:new THREE.Color(), cloudOp:.85, sunI:2.5, hemiI:.5, near:40, far:200};
+  const GREY = LIN(0x8d969e), STORM = LIN(0x4d555e), WHITE = LIN(0xf2f5f8), AUTUMN = LIN(0xd07a2a), STRAW = LIN(0xb8a24a), tmpC = new THREE.Color();
+  let wet = 0, snowCover = 0, autumn = 0, flash = 0, nextFlash = 4;
+  // Falling rain is a set of streaks, snow a set of soft dots, both kept in a box around you.
+  const PREC = 1500, drops = new Float32Array(PREC * 3);
+  for (let a = 0; a < PREC; a++){ drops[a * 3] = (Math.random() - .5) * 44; drops[a * 3 + 1] = Math.random() * 22; drops[a * 3 + 2] = (Math.random() - .5) * 44; }
+  const rainPos = new Float32Array(PREC * 6), rainGeo = new THREE.BufferGeometry();
+  rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+  const rainLines = new THREE.LineSegments(rainGeo, basicMat({color:0xb9cbe0, transparent:true, opacity:.5, depthWrite:false}));
+  rainLines.frustumCulled = false; rainLines.visible = false; scene.add(rainLines);
+  const snowPos = new Float32Array(PREC * 3), snowGeo = new THREE.BufferGeometry();
+  snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
+  const snowPts = new THREE.Points(snowGeo, ptsMat({color:0xffffff, size:.11, map:dotTex, transparent:true, opacity:.95, depthWrite:false}));
+  snowPts.frustumCulled = false; snowPts.visible = false; scene.add(snowPts);
+  // Flood water, and the warning ring that marks where a storm's flood will land.
+  const waterMat = stdMat({color:0x5a93b8, transparent:true, opacity:.85, roughness:.04, metalness:.3, depthWrite:false});
+  const pools = [];
+  function addPool(x, z, r, hold){
+    const m = new THREE.Mesh(new THREE.CircleGeometry(1, 64), waterMat.clone());
+    m.rotation.x = -Math.PI / 2; m.position.set(x, .14, z); m.scale.setScalar(.01); m.renderOrder = 3;
+    scene.add(m); pools.push({m, r, t:0, hold});
+  }
+  const warnRing = new THREE.Mesh(new THREE.RingGeometry(.93, 1, 72), basicMat({color:0xff6a3a, transparent:true, opacity:.8, depthWrite:false, fog:false}));
+  warnRing.rotation.x = -Math.PI / 2; warnRing.visible = false; warnRing.renderOrder = 3; scene.add(warnRing);
+  const DIRS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+  const dirTo = (x, z) => DIRS[(Math.round(Math.atan2(-(x - S.px), z - S.pz) / (Math.PI / 4)) + 8) % 8];
+  function onWeather(e){
+    if (e.type === 'weather'){
+      if (e.kind === 'storm'){
+        const w = S.wx, d = Math.round(Math.hypot(w.fx - S.px, w.fz - S.pz));
+        toast('storm', 'Storm! In ' + G.FLOOD_WARN + ' seconds a flood will cover the orange ring, ' + d + ' m ' + dirTo(w.fx, w.fz) + ' of you. Harvest what you can.', 3000);
+        sound('warn');
+      } else if (e.kind === 'rain') toast('rain', 'Rain: crops grow faster, but now and then it washes out a patch.', 30000);
+      else if (e.kind === 'snow') toast('snow', 'Snow is falling. Only winter crops keep growing.', 30000);
+    } else if (e.type === 'flood'){
+      addPool(e.x, e.z, e.r, 22); sound('flood');
+      toast('flood', 'Flood! ' + (e.lost ? fmt(e.lost) + ' crops were washed away.' : 'Nothing was growing there.'), 1000);
+    } else if (e.type === 'washout'){
+      addPool(e.x, e.z, e.r, 6);
+      toast('wash', 'Rain washed away ' + fmt(e.lost) + ' crops nearby.', 8000);
+    } else if (e.type === 'season'){
+      sound('season'); buildShop();
+      const can = G.CROPS.filter(c => c.era <= S.era && c.seasons.includes(e.season)).map(c => c.name.toLowerCase());
+      toast('seasonchange', G.SEASONS[e.season] + ' has come. You can sow ' + (can.length ? can.slice(-4).join(', ') : 'nothing new') + '.' + (e.season === 3 ? ' Other crops stop growing until spring.' : ''), 1000);
+    }
+  }
+  function paintWeather(dt){
+    const w = S.wx || {kind:'clear'}, sea = G.season(S);
+    const target = w.kind === 'storm' ? 1 : w.kind === 'rain' ? .55 : w.kind === 'snow' ? .4 : 0;
+    wet += (target - wet) * Math.min(1, dt * .6);
+    if (sea === 3 && w.kind === 'snow') snowCover = Math.min(1, snowCover + dt / 25);
+    else if (sea !== 3) snowCover = Math.max(0, snowCover - dt / 35);
+    autumn += ((sea === 2 ? 1 : 0) - autumn) * Math.min(1, dt * .08);
+    // storms flash
+    flash = Math.max(0, flash - dt * 5);
+    if (w.kind === 'storm'){ nextFlash -= dt; if (nextFlash <= 0){ flash = 1; nextFlash = 5 + Math.random() * 9; setTimeout(() => sound('thunder'), 300 + Math.random() * 1500); } }
+    // light, fog and sky
+    const grey = tmpC.copy(GREY).lerp(STORM, Math.max(0, wet - .55) / .45);
+    sun.intensity = wxBase.sunI * (1 - .72 * wet);
+    hemi.intensity = wxBase.hemiI * (1 - .15 * wet) + flash * 2.2;
+    scene.fog.color.copy(wxBase.fog).lerp(grey, wet * .85); scene.background.copy(scene.fog.color);
+    scene.fog.near = wxBase.near * (1 - .5 * wet); scene.fog.far = wxBase.far * (1 - .5 * wet);
+    skyU.top.value.copy(wxBase.top).lerp(grey, wet * .9); skyU.horizon.value.copy(wxBase.hor).lerp(grey, wet * .85);
+    skyU.sunCol.value.copy(wxBase.sunCol).multiplyScalar(1 - wet * .9);
+    for (const c of clouds){ c.material.color.copy(wxBase.cloud).lerp(grey, wet); c.material.opacity = Math.min(1, wxBase.cloudOp + wet * .3); }
+    // seasons on the land
+    treeMat.color.copy(wxBase.tree).lerp(AUTUMN, autumn * .65).lerp(WHITE, snowCover * .55);
+    grassBase.copy(wxBase.grass).lerp(STRAW, autumn * .35).lerp(WHITE, snowCover * .8);
+    outerMat.color.copy(wxBase.outer).lerp(STRAW, autumn * .3).lerp(WHITE, snowCover * .85);
+    hillMat.color.copy(wxBase.hill).lerp(WHITE, snowCover * .6);
+    fieldSnow.value = snowCover;
+    // precipitation
+    const raining = w.kind === 'rain' || w.kind === 'storm', snowing = w.kind === 'snow';
+    rainLines.visible = raining && wet > .1; snowPts.visible = snowing;
+    const live = Math.round(PREC * (w.kind === 'storm' ? 1 : .6));
+    if (rainLines.visible){
+      const fall = 22 * dt, lean = .12;
+      for (let a = 0; a < PREC; a++){
+        let y = drops[a * 3 + 1] - fall; if (y < 0) y += 22; drops[a * 3 + 1] = y;
+        const x = S.px + drops[a * 3], z = S.pz + drops[a * 3 + 2], o = a * 6;
+        rainPos[o] = x; rainPos[o + 1] = y; rainPos[o + 2] = z; rainPos[o + 3] = x + lean; rainPos[o + 4] = y + .55; rainPos[o + 5] = z;
+      }
+      rainGeo.setDrawRange(0, live * 2); rainGeo.attributes.position.needsUpdate = true;
+      rainLines.material.opacity = .25 + .35 * wet;
+    }
+    if (snowing){
+      const t = performance.now() / 1000;
+      for (let a = 0; a < PREC; a++){
+        let y = drops[a * 3 + 1] - 1.6 * dt; if (y < 0) y += 22; drops[a * 3 + 1] = y;
+        snowPos[a * 3] = S.px + drops[a * 3] + Math.sin(t * .7 + a) * .5; snowPos[a * 3 + 1] = y; snowPos[a * 3 + 2] = S.pz + drops[a * 3 + 2] + Math.cos(t * .5 + a * 1.3) * .5;
+      }
+      snowGeo.attributes.position.needsUpdate = true;
+    }
+    // storm warning ring, then flood pools that rise and drain away
+    if (w.kind === 'storm' && !w.flooded){
+      warnRing.visible = true; warnRing.position.set(w.fx, .2, w.fz); warnRing.scale.setScalar(w.fr);
+      warnRing.material.opacity = .45 + .4 * Math.abs(Math.sin(performance.now() / 260));
+    } else warnRing.visible = false;
+    for (let a = pools.length - 1; a >= 0; a--){
+      const p = pools[a]; p.t += dt;
+      const up = Math.min(1, p.t / 2.5), down = Math.max(0, Math.min(1, (p.t - p.hold) / 8));
+      const k = up * (1 - down);
+      p.m.scale.setScalar(Math.max(.01, p.r * (.4 + .6 * up) * (1 - down * .5))); p.m.material.opacity = .85 * k;
+      if (p.t > p.hold + 8){ scene.remove(p.m); p.m.geometry.dispose(); p.m.material.dispose(); pools.splice(a, 1); }
+    }
+    setRainSound(raining ? (w.kind === 'storm' ? 1 : .6) * Math.min(1, wet * 1.6) : 0);
+    // the chip: season, weather and time to the next season
+    const left = G.SEASON_LEN - ((S.yearT || 0) % G.SEASON_LEN), mm = Math.floor(left / 60), ss = Math.floor(left % 60);
+    const WXN = {clear:'Clear', rain:'Rain', storm:'Storm', snow:'Snow'};
+    const chip = '<b>' + G.SEASONS[sea] + '</b> · ' + WXN[w.kind] + ' · ' + G.SEASONS[(sea + 1) % 4].toLowerCase() + ' in ' + mm + ':' + String(ss).padStart(2, '0');
+    const el = $('wxChip'); if (el._c !== chip){ el._c = chip; el.innerHTML = chip; }
+    el.classList.toggle('storm', w.kind === 'storm' && !w.flooded);
+  }
 
   /* ---------- input ---------- */
   const keys = {}, look = new Map(), joy = {id:null, x:0, y:0, ox:0, oy:0};
@@ -1719,7 +1933,8 @@ svg{display:block}
       } else swingT = 1;
     }
     ripenT += dt;
-    if (ripenT > .25){ ripenT = 0; G.ripen(S, F, changed); }
+    for (const ev of G.weatherStep(S, F, dt, S.px, S.pz, Math.random, changed)) onWeather(ev);
+    if (ripenT > .25){ G.ripen(S, F, changed, ripenT); ripenT = 0; }
     if (changed.length){
       for (let a = 0; a < changed.length; a++) paintCell(changed[a]);
       changed.length = 0; tex.needsUpdate = true; mapDirty = true; cropsDirty = true;
@@ -1739,6 +1954,7 @@ svg{display:block}
     ringMat.opacity = S.work ? (S.mode === 'all' ? .5 : .85) : .2;
     if (stars.visible) stars.position.copy(camera.position);
     sky.position.copy(camera.position);
+    paintWeather(dt);
     wind.value += dt;
     updateFlies(dt);
     if (dust.visible){ dust.position.set(S.px, 0, S.pz); dust.rotation.y += dt * .03; }
@@ -1759,6 +1975,8 @@ svg{display:block}
     S = got.S; F = got.F; R = G.rates(S);
     setGfx(gfx); setRig(); paintAll(); applyEra(); setWork(S.work); setMode(S.mode); resize(); paintHud(true); paintMap();
     started = true;
+    if (!S.loc) showLocPick();
+    { const sea = G.season(S); if (sea === 3) snowCover = S.wx && S.wx.kind === 'snow' ? .9 : .6; if (sea === 2) autumn = 1; }
     requestAnimationFrame(frame);
     document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
     window.addEventListener('pagehide', save);

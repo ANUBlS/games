@@ -29,6 +29,7 @@ function runEra(o,limitMin){ const S=o.S,era=S.era,t0=o.t; if(!o.path)lap(o);
   return Infinity }
 // The tuner prices ages by coins alone; age requirements are left out of the simulation.
 for (const k in G.REQS) delete G.REQS[k];
+G.OPTS.seasons = false; G.OPTS.fert = false;
 const M=G.M.slice(); let base=newSim(); const out=[];
 for(let e=0;e<12;e++){
   let lo=1e-2,hi=1e18;
