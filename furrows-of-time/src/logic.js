@@ -30,6 +30,43 @@ const Game = (() => {
     {id:'moonberry',  name:'Moonberry',  era:11, grow:100, value:8000000,   color:'#c06bff', stem:'#38d6c0', h:1.2},
     {id:'starbloom',  name:'Starbloom',  era:12, grow:120, value:100000000, color:'#ffd1f0', stem:'#9a7cff', h:1.5}
   ];
+  // Two more crops for every age: a quick, cheap one and a slow, valuable one, priced from the age's first crop.
+  // [id, name, age, quick or rich, colour, stem, height, icon shape, sow seasons, fertilizer]
+  const EXTRA_CROPS = [
+    ['oats', 'Oats', 1, 'quick', '#d8c48a', '#a89a5a', .9, 'grain', [0, 2], 0],
+    ['flax', 'Flax', 1, 'rich', '#6f8fd8', '#4f8a2d', .9, 'flower', [0, 1], 0],
+    ['rye', 'Rye', 2, 'quick', '#b49a6a', '#9a8a50', 1.1, 'grain', [2, 3, 0], 0],
+    ['fava', 'Fava beans', 2, 'rich', '#7fae5a', '#3d7a26', .8, 'pod', [0, 2], 0],
+    ['onion', 'Onion', 3, 'quick', '#c98a5a', '#5a9a31', .5, 'root', [0, 2, 3], 0],
+    ['carrot', 'Carrot', 3, 'rich', '#f08a2a', '#4f9a31', .45, 'root', [0, 1, 2], 0],
+    ['pepper', 'Pepper', 4, 'quick', '#e0402a', '#3d7a26', .7, 'round', [1], 0],
+    ['pumpkin', 'Pumpkin', 4, 'rich', '#f09a2a', '#4f8a2d', .5, 'round', [1, 2], 0],
+    ['beet', 'Sugar beet', 5, 'quick', '#9a2a4a', '#4f8a2d', .5, 'root', [0, 2], 1],
+    ['peanut', 'Peanut', 5, 'rich', '#c9a06a', '#4f8a2d', .45, 'pod', [1], 0],
+    ['rice', 'Rice', 6, 'quick', '#e8e2b0', '#6aa040', .9, 'grain', [1], 1],
+    ['sorghum', 'Sorghum', 6, 'rich', '#a8452a', '#5a8a2d', 1.5, 'grain', [1, 2], 1],
+    ['lettuce', 'Lettuce', 7, 'quick', '#8fd65a', '#4f9a31', .35, 'leafy', [0, 2], 0],
+    ['canola', 'Canola', 7, 'rich', '#f5e02a', '#4f8a2d', 1.1, 'flower', [0, 2], 1],
+    ['quinoa', 'Quinoa', 8, 'quick', '#d9a05a', '#6a8a3a', 1.1, 'grain', [0, 1], 1],
+    ['blueberry', 'Blueberry', 8, 'rich', '#4a5ad8', '#3d6a2a', .8, 'berry', [1], 2],
+    ['kale', 'Kale', 9, 'quick', '#3f7a4a', '#2f6a3a', .55, 'leafy', [2, 3, 0], 0],
+    ['saffron', 'Saffron', 9, 'rich', '#9a5ae0', '#4f8a2d', .35, 'flower', [2], 2],
+    ['skymelon', 'Sky melon', 10, 'quick', '#9ff0ff', '#2f9a8a', .5, 'round', [0, 1, 2, 3], 1],
+    ['coralbean', 'Coral bean', 10, 'rich', '#ff7a6a', '#2f9a8a', .9, 'pod', [0, 1, 2, 3], 2],
+    ['sunfruit', 'Sunfruit', 11, 'quick', '#ffcf3a', '#38d6c0', 1, 'berry', [0, 1, 2, 3], 2],
+    ['nebulacorn', 'Nebula corn', 11, 'rich', '#7a5aff', '#38d6c0', 1.6, 'grain', [0, 1, 2, 3], 3],
+    ['crystalwheat', 'Crystal wheat', 12, 'quick', '#bff4ff', '#9a7cff', 1.1, 'grain', [0, 1, 2, 3], 1],
+    ['voidlily', 'Void lily', 12, 'rich', '#6a3aff', '#9a7cff', 1.3, 'flower', [0, 1, 2, 3], 3]
+  ];
+  const ICON_SHAPE = {wheat:'grain', barley:'grain', cabbage:'leafy', potato:'root', tomato:'round', cotton:'flower', corn:'grain', sunflower:'flower',
+    soybean:'pod', strawberry:'berry', glowrice:'grain', moonberry:'berry', starbloom:'flower'};
+  for (const [id, name, era, kind, color, stem, h, shape] of EXTRA_CROPS){
+    const main = CROPS.find(c => c.era === era);
+    const quick = kind === 'quick';
+    CROPS.push({id, name, era, grow:Math.round(main.grow * (quick ? .6 : 1.7)), value:Math.max(1, Math.round(main.value * (quick ? .55 : 1.65))), color, stem, h, extra:true});
+    ICON_SHAPE[id] = shape;
+  }
+  for (const c of CROPS) c.shape = ICON_SHAPE[c.id];
   const cellsIn = r => { let n = 0; const m = Math.ceil(r); for (let a = -m; a <= m; a++) for (let b = -m; b <= m; b++) if (a*a + b*b <= r*r) n++; return n; };
   const x = v => '×' + String(v);
   const T = (name, era, v, w, rig) => ({name, era, v, w, rig, cost:0});
@@ -120,20 +157,21 @@ const Game = (() => {
     cotton:[[1], 1], corn:[[0, 1], 1], sunflower:[[1], 2], soybean:[[1, 2], 0], strawberry:[[0, 1], 2],
     glowrice:[[0, 1, 2, 3], 1], moonberry:[[0, 1, 2, 3], 3], starbloom:[[0, 1, 2, 3], 2]
   };
+  for (const x of EXTRA_CROPS) CROP_EXTRA[x[0]] = [x[8], x[9]];
   for (const c of CROPS){ const x = CROP_EXTRA[c.id]; c.seasons = x[0]; c.fert = x[1]; c.hardy = x[0].includes(3); }
   const SEASONS = ['Spring', 'Summer', 'Autumn', 'Winter'], SEASON_LEN = 240;
   // Switches for the price tuner, which simulates a player without seasons or fertilizer.
   const OPTS = {seasons:true, fert:true};
   // Where the farm is changes what each crop sells for.
   const LOCS = [
-    {id:'america',    name:'America',    mult:{corn:1.6, soybean:1.4, wheat:1.1, sunflower:.9}},
-    {id:'russia',     name:'Russia',     mult:{wheat:1.6, barley:1.4, sunflower:1.4, potato:1.2, cotton:.7}},
+    {id:'america',    name:'America',    mult:{corn:1.6, soybean:1.4, pumpkin:1.4, wheat:1.1, blueberry:1.3, sunflower:.9}},
+    {id:'russia',     name:'Russia',     mult:{wheat:1.6, rye:1.5, barley:1.4, sunflower:1.4, oats:1.3, potato:1.2, beet:1.3, cotton:.7}},
     {id:'azerbaijan', name:'Azerbaijan', mult:{cotton:1.5, tomato:1.4, wheat:1.2, strawberry:1.2, corn:.8}},
-    {id:'china',      name:'China',      mult:{glowrice:1.6, cabbage:1.4, soybean:1.2, tomato:1.2, sunflower:.8}},
-    {id:'india',      name:'India',      mult:{cotton:1.4, glowrice:1.5, wheat:1.2, sunflower:.8}},
+    {id:'china',      name:'China',      mult:{rice:1.6, glowrice:1.6, cabbage:1.4, soybean:1.2, tomato:1.2, sunflower:.8}},
+    {id:'india',      name:'India',      mult:{cotton:1.4, rice:1.4, glowrice:1.5, pepper:1.4, peanut:1.3, wheat:1.2, sunflower:.8}},
     {id:'brazil',     name:'Brazil',     mult:{soybean:1.6, corn:1.3, cotton:1.2, strawberry:1.2, wheat:.8}},
     {id:'france',     name:'France',     mult:{wheat:1.3, barley:1.2, sunflower:1.3, strawberry:1.3, cabbage:1.1}},
-    {id:'egypt',      name:'Egypt',      mult:{cotton:1.6, tomato:1.3, potato:1.2, corn:.8}}
+    {id:'egypt',      name:'Egypt',      mult:{cotton:1.6, onion:1.4, tomato:1.3, potato:1.2, fava:1.3, corn:.8}}
   ];
   const locById = Object.fromEntries(LOCS.map(l => [l.id, l]));
   const cropById = Object.fromEntries(CROPS.map(c => [c.id, c]));
@@ -149,7 +187,7 @@ const Game = (() => {
 
   function fresh(){
     const lv = {}; for (const t of TRACKS) lv[t.id] = 0;
-    return {v:5, coins:0, earned:0, era:1, seed:'wheat', mode:'all', eraPlow:0, eraHarv:{}, lv, bag:0, bagValue:0, sold:0, harvests:0, sown:0, worked:0, growing:0, clock:0, done:false,
+    return {v:6, coins:0, earned:0, era:1, seed:'wheat', mode:'all', eraPlow:0, eraHarv:{}, lv, bag:0, bagValue:0, sold:0, harvests:0, sown:0, worked:0, growing:0, clock:0, done:false,
       px:N / 2 + .5, pz:3.5, yaw:Math.PI, pitch:-.32, work:true};
   }
   // Rocks lie in clusters across the field, the same on every farm, clear of the start.
@@ -163,7 +201,7 @@ const Game = (() => {
         if (i < 0 || j < 0 || i >= N || j >= N) continue;
         if (j < 16 && Math.abs(i - N / 2) < 24) continue;
         const q = rnd();
-        rock[j * N + i] = q < .5 ? 1 : q < .8 ? 2 : q < .95 ? 3 : 4;
+        rock[j * N + i] = (q < .5 ? 1 : q < .8 ? 2 : q < .95 ? 3 : 4) | (rnd() < .032 ? 8 : 0);
       }
     }
     return rock;
@@ -219,7 +257,7 @@ const Game = (() => {
     for (let o = 0; o < off.length; o += 2){
       const i = ci + off[o], j = cj + off[o + 1];
       if (i < 0 || j < 0 || i >= N || j >= N) continue;
-      const k = j * N + i, st = F.st[k], rk = F.rock[k];
+      const k = j * N + i, st = F.st[k], rk = F.rock[k] & 7, hasGold = F.rock[k] & 8;
       if (rk){
         // A rock: only Plow mode can clear it, with a strong enough rock tool, and it costs coins.
         if (m !== 'plow'){ skipped++; continue; }
@@ -227,7 +265,7 @@ const Game = (() => {
         const fee = rockFee(S, rk);
         if (S.coins < fee){ poor = Math.max(poor, fee); continue; }
         S.coins -= fee; spent += fee; F.rock[k] = 0; cleared++; S.rocks = (S.rocks || 0) + 1;
-        if (goldAt(k)){ const g = goldValue(S, rk); S.coins += g; S.earned += g; gold++; goldCoins += g; S.gold = (S.gold || 0) + 1; }
+        if (hasGold){ const g = goldValue(S, rk); S.coins += g; S.earned += g; gold++; goldCoins += g; S.gold = (S.gold || 0) + 1; }
         n++; if (changed) changed.push(k);
         continue;
       }
@@ -297,6 +335,24 @@ const Game = (() => {
       const lost = wash(S, F, x, z, r, changed);
       if (lost) ev.push({type:'washout', x, z, r, lost});
     }
+    // New rocks work up out of the ground now and then, on empty grass, often near you.
+    S.rockT = (S.rockT || 0) + dt;
+    if (S.rockT >= 45){
+      S.rockT = 0;
+      let made = 0, near = 0;
+      const want = 2 + Math.floor(rnd() * 5);
+      for (let tries = 0; tries < 60 && made < want; tries++){
+        const close = rnd() < .5;
+        const i = close ? Math.floor(px + (rnd() - .5) * 70) : Math.floor(rnd() * N), j = close ? Math.floor(pz + (rnd() - .5) * 70) : Math.floor(rnd() * N);
+        if (i < 1 || j < 1 || i >= N - 1 || j >= N - 1) continue;
+        const k = j * N + i;
+        if (F.st[k] !== WILD || F.rock[k] || (Math.abs(i + .5 - px) < 3 && Math.abs(j + .5 - pz) < 3)) continue;
+        const q = rnd();
+        F.rock[k] = (q < .6 ? 1 : q < .9 ? 2 : 3) | (rnd() < .03 ? 8 : 0);
+        made++; if (close) near++; if (changed) changed.push(k);
+      }
+      if (made) ev.push({type:'rocks', count:made, near});
+    }
     if (w.left <= 0){
       const odds = WX_ODDS[s]; let q = rnd(), kind = 'clear';
       for (const k of ['clear', 'rain', 'storm', 'snow']){ if (q < odds[k]){ kind = k; break; } q -= odds[k]; }
@@ -309,6 +365,58 @@ const Game = (() => {
       ev.push({type:'weather', kind});
     }
     return ev;
+  }
+  // Field art: pay for a commission, grow the figure in crops around the flag, and get paid.
+  // Each '#' is one block of plots (bigger tools make bigger blocks). Hints make it easier; no hints pays double.
+  const ART = [
+    {id:'alien', name:'Alien', rows:['...#####...', '..#######..', '.#########.', '###########', '##..###..##', '#...###...#', '##.#####.##', '###########', '.#########.', '..#######..', '...##.##...', '....###....', '.....#.....']},
+    {id:'human', name:'Person', rows:['....###....', '....###....', '....###....', '.....#.....', '.#########.', '#.#######.#', '#..#####..#', '...#####...', '...##.##...', '...##.##...', '...#...#...', '..##...##..', '..##...##..']},
+    {id:'ufo', name:'Flying saucer', rows:['.....###.....', '....#####....', '...#######...', '.###########.', '#############', '#.#.#.#.#.#.#', '.###########.', '..#.......#..', '.#.........#.']},
+    {id:'star', name:'Star', rows:['.....#.....', '.....#.....', '....###....', '###########', '.#########.', '..#######..', '..#######..', '.####.####.', '.###...###.', '###.....###', '#.........#']},
+    {id:'heart', name:'Heart', rows:['.###...###.', '#####.#####', '###########', '###########', '###########', '.#########.', '..#######..', '...#####...', '....###....', '.....#.....']},
+    {id:'rocket', name:'Rocket', rows:['....#....', '...###...', '...###...', '..#####..', '..#...#..', '..#####..', '..#####..', '..#####..', '.#######.', '##.###.##', '#..###..#', '...#.#...', '..#...#..']}
+  ];
+  for (const a of ART){ a.w = a.rows[0].length; a.h = a.rows.length; a.cells = a.rows.join('').split('').filter(c => c === '#').length; }
+  const artById = Object.fromEntries(ART.map(a => [a.id, a]));
+  const ART_DONE_AT = .9;
+  const artFee = S => nice(M[S.era - 1] * .6);
+  const artReward = (S, a) => nice(a.fee * 5 * (a.hints.length ? 1 : 2));
+  const HINTS = {stakes:{name:'Corner stakes', k:.4}, outline:{name:'Chalk outline', k:1}};
+  const hintCost = (S, kind) => nice(S.art.fee * HINTS[kind].k);
+  function startArt(S, id, px, pz, r){
+    const a = artById[id], fee = artFee(S);
+    if (!a || S.art || S.coins < fee) return false;
+    const s = Math.max(1, Math.round(r.tool)), W = a.w * s, H = a.h * s;
+    const x0 = clamp(Math.round(px - W / 2), 1, N - W - 1), z0 = clamp(Math.round(pz - H / 2), 1, N - H - 1);
+    S.coins -= fee; S.art = {id, x0, z0, s, fee, hints:[]};
+    return true;
+  }
+  function buyHint(S, kind){
+    if (!S.art || !HINTS[kind] || S.art.hints.includes(kind)) return false;
+    const c = hintCost(S, kind);
+    if (S.coins < c) return false;
+    S.coins -= c; S.art.hints.push(kind); return true;
+  }
+  // Which plot block each '#' or '.' covers. Row 0 is north (top of the map); column 0 is west (left of the map).
+  function artBlock(art, a, c, r){ return {i:art.x0 + (a.w - 1 - c) * art.s, j:art.z0 + (a.h - 1 - r) * art.s}; }
+  function artProgress(S, F){
+    const art = S.art; if (!art) return null;
+    const a = artById[art.id], s = art.s; let good = 0, total = 0, grown = 0;
+    for (let r = 0; r < a.h; r++) for (let c = 0; c < a.w; c++){
+      const want = a.rows[r][c] === '#', b = artBlock(art, a, c, r);
+      let crops = 0;
+      for (let dj = 0; dj < s; dj++) for (let di = 0; di < s; di++){ const st = F.st[(b.j + dj) * N + b.i + di]; if (st === GROWING || st === RIPE) crops++; }
+      const filled = crops * 2 >= s * s;
+      total++; if (filled === want) good++; if (want && filled) grown++;
+    }
+    return {good, total, grown, need:a.cells, pct:good / total};
+  }
+  function artCheck(S, F){
+    const p = artProgress(S, F);
+    if (!p || p.pct < ART_DONE_AT || p.grown < p.need * .85) return null;
+    const art = S.art, a = artById[art.id], reward = artReward(S, art), doubled = !art.hints.length;
+    S.coins += reward; S.earned += reward; S.artDone = (S.artDone || 0) + 1; S.art = null;
+    return {name:a.name, reward, doubled};
   }
   function rockFee(S, size){
     const tier = trackById.rock.tiers[S.lv.rock || 0];
@@ -384,16 +492,16 @@ const Game = (() => {
     const runs = []; let prev = -1, len = 0;
     for (let k = 0; k < N * N; k++){
       const st = F.st[k] === GROWING ? RIPE : F.st[k];
-      const v = st | (st === RIPE ? F.crop[k] << 2 : 0) | (F.ever[k] << 6) | (F.rock[k] << 7);
+      const v = st | (st === RIPE ? F.crop[k] << 2 : 0) | (F.ever[k] << 8) | (F.rock[k] << 9);
       if (v === prev) len++; else { if (len) runs.push(prev, len); prev = v; len = 1; }
     }
     runs.push(prev, len);
     const s = Object.assign({}, S, {lv:Object.assign({}, S.lv), growing:0});
-    return {v:5, s, field:runs};
+    return {v:6, s, field:runs};
   }
   function unpack(d){
     const S = fresh(), F = freshField();
-    if (!d || (d.v !== 3 && d.v !== 4 && d.v !== 5) || !d.s || !Array.isArray(d.field)) return {S, F};
+    if (!d || (d.v !== 3 && d.v !== 4 && d.v !== 5 && d.v !== 6) || !d.s || !Array.isArray(d.field)) return {S, F};
     const s = d.s;
     S.coins = Math.max(0, +s.coins || 0);
     S.earned = Math.max(S.coins, +s.earned || 0);
@@ -418,18 +526,25 @@ const Game = (() => {
     if (s.eraHarv && typeof s.eraHarv === 'object') for (const id in s.eraHarv) if (cropById[id]) S.eraHarv[id] = Math.max(0, +s.eraHarv[id] || 0);
     let k = 0;
     for (let a = 0; a + 1 < d.field.length && k < N * N; a += 2){
-      const v = d.field[a] | 0, len = d.field[a + 1] | 0, st = v & 3, crop = (v >> 2) & 15, ever = (v >> 6) & 1, rk = (v >> 7) & 7;
+      const v = d.field[a] | 0, len = d.field[a + 1] | 0, st = v & 3, crop = d.v >= 6 ? (v >> 2) & 63 : (v >> 2) & 15, ever = d.v >= 6 ? (v >> 8) & 1 : (v >> 6) & 1, rk = d.v >= 6 ? (v >> 9) & 15 : (v >> 7) & 7;
       for (let b = 0; b < len && k < N * N; b++, k++){
         F.st[k] = st === GROWING ? RIPE : st;
         F.crop[k] = crop < CROPS.length ? crop : 0;
         F.ever[k] = ever; if (ever) S.worked++;
         // Saves from before rocks keep the new rocks only where the ground was never touched.
-        if (d.v >= 5) F.rock[k] = rk > 4 ? 0 : rk;
+        if (d.v >= 6) F.rock[k] = (rk & 7) > 4 ? 0 : rk;
+        else if (d.v === 5) F.rock[k] = rk > 4 || !rk ? 0 : rk | (goldAt(k) ? 8 : 0);
         else if (F.st[k] !== WILD || ever) F.rock[k] = 0;
       }
     }
     S.rocks = Math.max(0, +s.rocks || 0);
     S.gold = Math.max(0, +s.gold || 0);
+    S.artDone = Math.max(0, +s.artDone || 0); S.rockT = Math.max(0, +s.rockT || 0);
+    if (s.art && artById[s.art.id] && isFinite(s.art.x0) && isFinite(s.art.z0)){
+      const a = artById[s.art.id], sc = clamp(s.art.s | 0, 1, 20);
+      S.art = {id:s.art.id, s:sc, x0:clamp(s.art.x0 | 0, 0, N - a.w * sc), z0:clamp(s.art.z0 | 0, 0, N - a.h * sc), fee:Math.max(1, +s.art.fee || 1),
+        hints:Array.isArray(s.art.hints) ? s.art.hints.filter(h => HINTS[h]) : []};
+    }
     S.fert = Math.max(0, Math.floor(+s.fert || 0));
     S.yearT = Math.max(0, +s.yearT || 0);
     S.loc = locById[s.loc] ? s.loc : undefined;
@@ -441,6 +556,6 @@ const Game = (() => {
     return {S, F};
   }
 
-  return {N, WILD, PLOWED, GROWING, RIPE, OPTS, SEASONS, SEASON_LEN, LOCS, locById, locMult, season, inSeason, fertPrice, buyFert, moveCost, setLoc, goldAt, goldValue, weatherStep, wash, FLOOD_WARN, MODES, REQS, reqStatus, reqMet, ROCK_NAMES, rockFee, BARNS, SELL_RANGE, nearestBarn, canSell, sell, ERAS, CROPS, TRACKS, M, cropById, trackById, cellsIn, offsets, reprice,
+  return {N, WILD, PLOWED, GROWING, RIPE, ART, artById, ART_DONE_AT, artFee, artReward, HINTS, hintCost, startArt, buyHint, artBlock, artProgress, artCheck, OPTS, SEASONS, SEASON_LEN, LOCS, locById, locMult, season, inSeason, fertPrice, buyFert, moveCost, setLoc, goldAt, goldValue, weatherStep, wash, FLOOD_WARN, MODES, REQS, reqStatus, reqMet, ROCK_NAMES, rockFee, BARNS, SELL_RANGE, nearestBarn, canSell, sell, ERAS, CROPS, TRACKS, M, cropById, trackById, cellsIn, offsets, reprice,
     fresh, freshField, rates, harvestValue, growSeconds, swing, ripen, nextTier, buy, nextEra, advance, setSeed, pack, unpack};
 })();

@@ -40,9 +40,17 @@ From 1850 on, many crops need fertilizer to sow: cotton and corn 1 unit per plot
 
 When you start, pick where your farm is: America, Russia, Azerbaijan, China, India, Brazil, France or Egypt. Each pays more for the crops it is known for (corn in America, wheat in Russia, cotton in Azerbaijan and Egypt, and so on). You can move later, for a fee.
 
+## Field art
+
+The shop sells field-art commissions: Alien, Person, Flying saucer, Star, Heart and Rocket. Pay to start one where you stand; a red flag marks the middle. Grow the figure in crops around the flag, north at the top of the map. Each square of the figure is one block of plots, bigger with bigger tools. The figure counts as done when 90% of its squares are right. A commission pays five times its price, or ten times if you finish with no hints. Hints: **Corner stakes** mark the figure's corners, and **Chalk outline** draws every square on the ground and on the map.
+
+## More crops
+
+Every age has two more crops besides its main one: a quick, cheap crop and a slow, valuable one. Oats and flax (300), rye and fava beans (800), onion and carrot (1200), pepper and pumpkin (1600), sugar beet and peanut (1850), rice and sorghum (1940), lettuce and canola (1990), quinoa and blueberry (2000), kale and saffron (2026), sky melon and coral bean (2100), sunfruit and nebula corn (2500), crystal wheat and void lily (3000).
+
 ## Gold
 
-About one rock in thirty holds a gold nugget. Which rocks is hidden until you clear them, and a nugget pays far more than clearing the rock costs.
+About one rock in thirty holds a gold nugget. Which rocks is hidden until you clear them, and a nugget pays far more than clearing the rock costs. Cleared rocks are gone, but every 45 seconds or so a few new rocks come up out of empty grass, often near you, and some of those hold gold too.
 
 ## Ages
 
