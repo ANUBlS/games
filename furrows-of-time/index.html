@@ -1554,23 +1554,68 @@ const Game = (() => {
     tyre:lam(0x1d1d1f), bone:lam(0xe8dcc0), straw:lam(0xd9c27a), white:lam(0xf2f2ee),
     glass:stdMat({color:0x9fd4e8, transparent:true, opacity:.5, roughness:.08, metalness:.1})};
   MAT.steel.roughness = .28; MAT.steel.metalness = .75; MAT.iron.roughness = .5; MAT.iron.metalness = .55; MAT.tyre.roughness = .95;
-  const BOX = new THREE.BoxGeometry(1, 1, 1), CYL = new THREE.CylinderGeometry(1, 1, 1, 14), SPH = new THREE.SphereGeometry(1, 12, 9);
-  function bx(w, h, d, m, x, y, z){ const o = new THREE.Mesh(BOX, m); o.scale.set(w, h, d); o.position.set(x, y, z); return o; }
+  const CYL = new THREE.CylinderGeometry(1, 1, 1, 24), SPH = new THREE.SphereGeometry(1, 20, 14);
+  // Rounded boxes: a sphere pushed out to the box's corners, so every edge is softly rounded.
+  const RBOX = new Map();
+  function roundGeo(w, h, d, rad){
+    const key = w.toFixed(3) + ',' + h.toFixed(3) + ',' + d.toFixed(3) + ',' + rad.toFixed(3);
+    let g = RBOX.get(key); if (g) return g;
+    g = new THREE.SphereGeometry(1, 16, 12);
+    const pa = g.attributes.position, na = g.attributes.normal, v = new THREE.Vector3();
+    const hx = Math.max(0, w / 2 - rad), hy = Math.max(0, h / 2 - rad), hz = Math.max(0, d / 2 - rad);
+    const off = (c, hh) => Math.abs(c) < 1e-5 ? 0 : Math.sign(c) * hh;
+    for (let a = 0; a < pa.count; a++){
+      v.fromBufferAttribute(pa, a); na.setXYZ(a, v.x, v.y, v.z);
+      pa.setXYZ(a, v.x * rad + off(v.x, hx), v.y * rad + off(v.y, hy), v.z * rad + off(v.z, hz));
+    }
+    RBOX.set(key, g); return g;
+  }
+  function bx(w, h, d, m, x, y, z, rad){
+    if (rad === undefined) rad = Math.min(Math.min(w, h, d) * .24, .1);
+    const o = new THREE.Mesh(roundGeo(w, h, d, Math.min(rad, w / 2, h / 2, d / 2)), m); o.position.set(x, y, z); return o;
+  }
+  // A limb or post: a box rounded into a capsule.
+  const cap = (w, h, d, m, x, y, z) => bx(w, h, d, m, x, y, z, Math.min(w, d) * .48);
+  function cone(rt, rb, h, m, x, y, z){ const o = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, 14), m); o.position.set(x, y, z); return o; }
+  const TORI = new Map();
+  function torus(R, t, arc){ const k = R.toFixed(3) + ',' + t.toFixed(3) + ',' + (arc || 0); if (!TORI.has(k)) TORI.set(k, new THREE.TorusGeometry(R, t, 12, 36, arc || Math.PI * 2)); return TORI.get(k); }
   function cy(r, h, m, x, y, z, axis){
     const o = new THREE.Mesh(CYL, m); o.scale.set(r, h, r); o.position.set(x, y, z);
     if (axis === 'x') o.rotation.z = Math.PI / 2; else if (axis === 'z') o.rotation.x = Math.PI / 2;
     return o;
   }
   function ball(r, m, x, y, z){ const o = new THREE.Mesh(SPH, m); o.scale.setScalar(r); o.position.set(x, y, z); return o; }
+  // A wheel: a rounded rubber tyre with tread lugs on big wheels, a dished rim and a hub.
   function wheel(r, w, x, z, hub){
-    const g = new THREE.Group();
-    g.add(cy(r, w, MAT.tyre, 0, 0, 0, 'x'), cy(r * .5, w * 1.08, hub, 0, 0, 0, 'x'), bx(w * 1.1, r * 1.7, r * .14, hub, 0, 0, 0), bx(w * 1.1, r * .14, r * 1.7, hub, 0, 0, 0));
+    const g = new THREE.Group(), tube = Math.min(w * .5, r * .3);
+    const tyre = new THREE.Mesh(torus(r - tube, tube), MAT.tyre); tyre.rotation.y = Math.PI / 2; tyre.scale.z = w / (2 * tube);
+    g.add(tyre, cy(r - tube * 1.2, w * .7, hub, 0, 0, 0, 'x'), cy(r * .22, w * 1.02, MAT.iron, 0, 0, 0, 'x'));
+    const spokes = r > .3 ? 6 : 4;
+    for (let a = 0; a < spokes; a++){ const sp = bx(w * .5, (r - tube) * 1.8, r * .08, hub, 0, 0, 0); sp.rotation.x = a / spokes * Math.PI; g.add(sp); }
+    if (r > .5){
+      const lugs = 20;
+      for (let a = 0; a < lugs; a++){
+        const ang = a / lugs * Math.PI * 2, lug = bx(w * .42, .07, r * .16, MAT.tyre, (a % 2 ? .22 : -.22) * w, Math.cos(ang) * (r - .015), Math.sin(ang) * (r - .015), .03);
+        lug.rotation.x = -ang; lug.rotation.y = (a % 2 ? .35 : -.35); g.add(lug);
+      }
+    }
     g.position.set(x, r, z); g.userData.r = r; return g;
   }
+  // A head with a face and a straw hat.
+  function head(g, y, z){
+    g.add(cap(.11, .12, .11, MAT.skin, 0, y - .14, z), ball(.14, MAT.skin, 0, y, z), ball(.03, MAT.skin, 0, y - .01, z - .14),
+      ball(.018, MAT.dark, -.05, y + .03, z - .125), ball(.018, MAT.dark, .05, y + .03, z - .125));
+    const brim = new THREE.Mesh(torus(.2, .025), MAT.straw); brim.rotation.x = Math.PI / 2; brim.position.set(0, y + .11, z);
+    g.add(brim, cy(.2, .02, MAT.straw, 0, y + .11, z), cone(.1, .14, .14, MAT.straw, 0, y + .19, z), cy(.142, .03, lam(0x7a3a2a), 0, y + .14, z));
+  }
+  // A seated driver: hands on the wheel.
   function person(shirt, x, y, z){
-    const g = new THREE.Group();
-    g.add(bx(.44, .56, .28, lam(shirt), 0, .28, 0), ball(.15, MAT.skin, 0, .72, 0), cy(.24, .05, MAT.straw, 0, .84, 0), cy(.14, .12, MAT.straw, 0, .9, 0),
-      bx(.12, .12, .42, lam(shirt), -.24, .38, -.2), bx(.12, .12, .42, lam(shirt), .24, .38, -.2));
+    const g = new THREE.Group(), cloth = lam(shirt);
+    g.add(bx(.42, .52, .26, cloth, 0, .3, 0, .1), bx(.4, .2, .4, lam(0x3b3a46), 0, .02, -.1, .08));
+    head(g, .72, 0);
+    for (const s of [-1, 1]){
+      const a = cap(.1, .1, .42, cloth, s * .22, .42, -.2); a.rotation.x = .3; g.add(a, ball(.055, MAT.skin, s * .2, .36, -.42));
+    }
     g.position.set(x, y, z); return g;
   }
   // A bar of tines or discs towed across the whole swath.
@@ -1583,18 +1628,60 @@ const Game = (() => {
   }
 
   // Fence, hut and trees, so there is something to steer by.
-  for (const [x, z, w, d] of [[N / 2, -.3, N + 1, .2], [N / 2, N + .3, N + 1, .2], [-.3, N / 2, .2, N + 1], [N + .3, N / 2, .2, N + 1]]) scene.add(bx(w, .9, d, MAT.wood, x, .45, z));
+  {
+    // A post-and-rail fence round the field: a post every two metres, two rails between.
+    const fenceWood = stdMat({color:0x8a6a44, roughness:.95});
+    const sides = [[0, -.3, 1, 0], [0, N + .3, 1, 0], [-.3, 0, 0, 1], [N + .3, 0, 0, 1]];
+    const posts = new THREE.InstancedMesh(roundGeo(.13, 1.15, .13, .05), fenceWood, sides.length * (N / 2 + 1));
+    const d = new THREE.Object3D(); let n = 0;
+    for (const [x0, z0, ax, az] of sides){
+      for (let t = 0; t <= N; t += 2){
+        d.position.set(x0 + ax * t, .57, z0 + az * t); d.rotation.set((Math.random() - .5) * .05, Math.random() * .4, (Math.random() - .5) * .05); d.updateMatrix(); posts.setMatrixAt(n++, d.matrix);
+      }
+      for (const y of [.45, .9]){
+        const rail = bx(ax ? N + .4 : .07, .1, az ? N + .4 : .07, fenceWood, x0 + ax * N / 2, y, z0 + az * N / 2, .03);
+        rail.castShadow = true; rail.receiveShadow = true; scene.add(rail);
+      }
+    }
+    posts.castShadow = true; posts.receiveShadow = true; scene.add(posts);
+  }
   // Barns: empty your bag at any of them. A pale beacon shows each one from far off.
   const beacons = [];
+  // Barn boards: red planks with dark seams and a little weathering, and grey roof shingles.
+  function boardTex(draw, rx, ry){
+    const c = document.createElement('canvas'); c.width = c.height = 256; draw(c.getContext('2d'));
+    const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry);
+    t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy()); return t;
+  }
+  const barnPlanks = stdMat({map:boardTex(g => {
+    let s = 5; const r = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    for (let x = 0; x < 256; x += 32){ const v = 150 + r() * 30 | 0; g.fillStyle = 'rgb(' + v + ',' + (40 + r() * 12 | 0) + ',' + (34 + r() * 10 | 0) + ')'; g.fillRect(x, 0, 32, 256); }
+    for (let n = 0; n < 900; n++){ g.fillStyle = 'rgba(' + (r() < .5 ? '0,0,0' : '255,220,200') + ',' + (r() * .08).toFixed(3) + ')'; g.fillRect(r() * 256, r() * 256, 1 + r() * 2, 4 + r() * 30); }
+    g.fillStyle = 'rgba(30,8,6,.75)'; for (let x = 0; x < 256; x += 32) g.fillRect(x, 0, 2.5, 256);
+  }, 2, 1), roughness:.9});
+  const barnShingles = stdMat({map:boardTex(g => {
+    let s = 9; const r = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    g.fillStyle = '#5d524c'; g.fillRect(0, 0, 256, 256);
+    for (let y = 0; y < 256; y += 32) for (let x = -(y / 32 % 2) * 16; x < 256; x += 32){ const v = 70 + r() * 30 | 0; g.fillStyle = 'rgb(' + v + ',' + (v - 8) + ',' + (v - 12) + ')'; g.fillRect(x + 1, y + 1, 30, 29); }
+    g.fillStyle = 'rgba(0,0,0,.35)'; for (let y = 0; y < 256; y += 32) g.fillRect(0, y + 28, 256, 4);
+  }, .5, .5), roughness:.85});
   for (const [bxp, bzp] of G.BARNS){
     const b = new THREE.Group();
     const gable = new THREE.Shape(); gable.moveTo(-3.9, 0); gable.lineTo(3.9, 0); gable.lineTo(0, 2.9); gable.lineTo(-3.9, 0);
     const roofGeo = new THREE.ExtrudeGeometry(gable, {depth:7, bevelEnabled:false}); roofGeo.translate(0, 0, -3.5);
-    const roof = new THREE.Mesh(roofGeo, [lam(0xa8322a), lam(0x5d4a40)]);
+    const roof = new THREE.Mesh(roofGeo, [barnPlanks, barnShingles]);
     roof.position.y = 4.4;
-    b.add(bx(7, 4.4, 6.4, lam(0xa8322a), 0, 2.2, 0), roof,
-      bx(2.6, 3, .12, lam(0xf2ece0), 0, 1.5, 3.22), bx(2.2, 2.6, .14, lam(0x7a2420), 0, 1.4, 3.24),
-      bx(.18, 2.9, .16, lam(0xf2ece0), 0, 1.45, 3.3), bx(1.3, .9, .9, MAT.straw, 2.6, .45, 4.1), bx(1.3, .9, .9, MAT.straw, 3.1, 1.3, 4.0));
+    const walls = new THREE.Mesh(new THREE.BoxGeometry(7, 4.4, 6.4), barnPlanks); walls.position.y = 2.2;
+    const trim = lam(0xf2ece0);
+    b.add(walls, roof);
+    for (const [x, z] of [[-3.5, -3.2], [3.5, -3.2], [-3.5, 3.2], [3.5, 3.2]]) b.add(bx(.22, 4.5, .22, trim, x, 2.25, z, .04));
+    // the front: a white frame, a dark door with an X brace, a hay loft window
+    b.add(bx(2.9, .2, .14, trim, 0, 3.05, 3.24, .04), bx(.18, 3, .14, trim, -1.4, 1.5, 3.24, .04), bx(.18, 3, .14, trim, 1.4, 1.5, 3.24, .04),
+      bx(2.6, 2.9, .08, lam(0x6a1e1a), 0, 1.45, 3.22, .02), bx(2.6, .14, .1, trim, 0, 1.45, 3.29, .03));
+    for (const s of [-1, 1]){ const br = bx(.14, 3.6, .1, trim, 0, 1.45, 3.3, .03); br.rotation.z = s * .72; br.scale.y = .98; b.add(br); }
+    b.add(bx(1.3, 1, .1, lam(0x3a2a22), 0, 5.1, 3.25, .02), bx(1.5, .14, .14, trim, 0, 5.65, 3.26, .03), bx(1.5, .14, .14, trim, 0, 4.55, 3.26, .03));
+    // round hay bales by the door
+    for (const [x, z, ry] of [[2.7, 4.2, 0], [3.4, 3.9, .7]]){ const bale = cy(.55, 1.1, MAT.straw, x, .55, z, 'x'); bale.rotation.y = ry; b.add(bale); }
     const pad = new THREE.Mesh(new THREE.RingGeometry(G.SELL_RANGE - .35, G.SELL_RANGE, 64), basicMat({color:0xffd45e, transparent:true, opacity:.55, depthWrite:false}));
     pad.rotation.x = -Math.PI / 2; pad.position.y = .08;
     const beam = new THREE.Mesh(new THREE.CylinderGeometry(.9, .9, 60, 12, 1, true), basicMat({color:0xffe9a0, transparent:true, opacity:.22, depthWrite:false, fog:false}));
@@ -1879,27 +1966,50 @@ const Game = (() => {
   // work at the spot the ring marks, and you follow just behind them.
   function arm(side){
     const a = new THREE.Group();
-    a.add(bx(.12, .12, .46, MAT.skin, 0, 0, -.1), bx(.16, .16, .32, MAT.cloth, 0, 0, .24));
+    a.add(cap(.1, .1, .4, MAT.skin, 0, 0, -.08), cap(.16, .16, .36, MAT.cloth, 0, .005, .22), bx(.12, .07, .13, MAT.skin, 0, -.01, -.33, .03));
+    const thumb = cap(.035, .035, .08, MAT.skin, side * -.06, .01, -.3); thumb.rotation.y = side * .5; a.add(thumb);
+    for (let f = 0; f < 4; f++) a.add(cap(.026, .026, .08, MAT.skin, -.042 + f * .028, -.015, -.41));
     a.position.set(side * .27, 0, 0); a.rotation.set(.45, -side * .22, 0); return a;
   }
   function animal(kind){
     const ox = kind === 'ox', g = new THREE.Group();
     const coat = lam(ox ? 0x8a5a36 : 0x7a4326), dark = lam(ox ? 0x4a3020 : 0x24160f);
     const bw = ox ? .72 : .52, bh = ox ? .74 : .62, bl = ox ? 1.5 : 1.6, by = ox ? .98 : 1.24, legH = by - bh / 2;
-    g.add(bx(bw, bh, bl, coat, 0, by, 0));
+    const hoof = lam(0x1c1712), eye = lam(0x0d0b0a), pale = lam(ox ? 0xd8c0a0 : 0x6a3a22);
+    // body: an egg-shaped barrel with shoulders and haunches
+    const body = ball(1, coat, 0, by, 0); body.scale.set(bw * .55, bh * .58, bl * .55); g.add(body);
+    const shoulder = ball(1, coat, 0, by + (ox ? .12 : .04), -bl * .28); shoulder.scale.set(bw * .52, bh * .6, bl * .26); g.add(shoulder);
+    const haunch = ball(1, coat, 0, by + .02, bl * .3); haunch.scale.set(bw * .5, bh * .55, bl * .25); g.add(haunch);
     if (ox){
-      g.add(bx(.44, .44, .5, coat, 0, by + .04, -bl / 2 - .2), bx(.32, .22, .16, dark, 0, by - .08, -bl / 2 - .5));
-      for (const s of [-1, 1]){ const h = cy(.035, .36, MAT.bone, s * .3, by + .34, -bl / 2 - .2); h.rotation.z = -s * .9; g.add(h); }
-      g.add(bx(.08, .5, .08, dark, 0, by - .1, bl / 2 + .04));
+      const neck = ball(1, coat, 0, by + .02, -bl / 2 - .05); neck.scale.set(.27, .3, .3); g.add(neck);
+      const hd = bx(.36, .4, .5, coat, 0, by - .02, -bl / 2 - .32, .14); hd.rotation.x = .35; g.add(hd);
+      const muzzle = bx(.3, .2, .16, pale, 0, by - .16, -bl / 2 - .56, .08); muzzle.rotation.x = .35; g.add(muzzle);
+      for (const s of [-1, 1]){
+        const horn = cone(.012, .045, .34, MAT.bone, s * .26, by + .2, -bl / 2 - .25); horn.rotation.z = -s * 1.1; g.add(horn);
+        g.add(ball(.03, eye, s * .17, by + .06, -bl / 2 - .43));
+        const ear = ball(1, coat, s * .24, by + .1, -bl / 2 - .2); ear.scale.set(.1, .04, .06); g.add(ear);
+      }
+      const dew = ball(1, coat, 0, by - .3, -bl / 2 + .05); dew.scale.set(.13, .18, .2); g.add(dew);
     } else {
-      const neck = bx(.26, .78, .36, coat, 0, by + .5, -bl / 2 - .02); neck.rotation.x = -.55;
-      const mane = bx(.07, .7, .22, dark, 0, by + .58, -bl / 2 + .2); mane.rotation.x = -.55;
-      g.add(neck, mane, bx(.22, .26, .52, coat, 0, by + .9, -bl / 2 - .5), bx(.1, .75, .1, dark, 0, by - .1, bl / 2 + .05));
+      const neck = bx(.24, .82, .34, coat, 0, by + .48, -bl / 2 + .02, .11); neck.rotation.x = -.6; g.add(neck);
+      const mane = bx(.07, .78, .14, dark, 0, by + .6, -bl / 2 + .2, .03); mane.rotation.x = -.6; g.add(mane);
+      const hd = bx(.2, .24, .56, coat, 0, by + .86, -bl / 2 - .46, .09); hd.rotation.x = .5; g.add(hd);
+      const nose = bx(.17, .17, .16, pale, 0, by + .7, -bl / 2 - .7, .07); nose.rotation.x = .5; g.add(nose);
+      for (const s of [-1, 1]){
+        g.add(ball(.026, eye, s * .1, by + .95, -bl / 2 - .4));
+        const ear = cone(.0, .04, .12, coat, s * .06, by + 1.12, -bl / 2 - .24); ear.rotation.x = -.3; g.add(ear);
+      }
     }
+    // tail
+    const tail = new THREE.Group(); tail.position.set(0, by + .16, bl / 2 + .02);
+    const tl = cone(.02, .035, .62, ox ? coat : dark, 0, -.3, .05); tl.rotation.x = .12; tail.add(tl);
+    const tuft = ball(1, dark, 0, -.64, .09); tuft.scale.set(.06, ox ? .12 : .22, .06); tail.add(tuft); g.add(tail); g.userData.tail = tail;
     const legs = [];
     for (const sx of [-1, 1]) for (const sz of [-1, 1]){
-      const p = new THREE.Group(); p.position.set(sx * (bw / 2 - .1), legH, sz * (bl / 2 - .16));
-      p.add(bx(.15, legH, .15, sx * sz > 0 ? coat : dark, 0, -legH / 2, 0)); p.userData.o = sx * sz > 0 ? 0 : Math.PI;
+      const p = new THREE.Group(); p.position.set(sx * (bw / 2 - .12), legH + .06, sz * (bl / 2 - .2));
+      p.add(cone(.055, .085, legH * .55, coat, 0, -legH * .26, 0), ball(.06, coat, 0, -legH * .55, 0), cone(.045, .055, legH * .42, coat, 0, -legH * .78, 0),
+        cy(.06, .09, hoof, 0, -legH + .0, 0));
+      p.userData.o = sx * sz > 0 ? 0 : Math.PI;
       g.add(p); legs.push(p);
     }
     g.userData.legs = legs; g.userData.back = by + bh / 2; return g;
@@ -1918,7 +2028,7 @@ const Game = (() => {
     let ph = 0;
     return {group:g, minDist:3.5, eye:count === 1 ? 2.1 : 2.3, tick(dt, moved){
       ph += moved * 2.4;
-      for (const b of beasts){ for (const l of b.userData.legs) l.rotation.x = Math.sin(ph + l.userData.o) * .5; b.position.y = Math.abs(Math.sin(ph)) * .03; }
+      for (const b of beasts){ for (const l of b.userData.legs) l.rotation.x = Math.sin(ph + l.userData.o) * .5; b.position.y = Math.abs(Math.sin(ph)) * .03; b.userData.tail.rotation.z = Math.sin(ph * .7 + performance.now() / 700) * .25; }
       for (const c of g.children) if (c.userData.r) c.rotation.x -= moved / c.userData.r;
     }};
   }
@@ -1926,7 +2036,15 @@ const Game = (() => {
     const g = new THREE.Group(), body = lam(o.color), trim = lam(o.trim), wheels = [];
     g.add(bx(.66, .58, 1.5, body, 0, 1.28, -.8), bx(.6, .52, .06, MAT.dark, 0, 1.28, -1.57), bx(.5, .36, 1.5, MAT.iron, 0, .86, -.6),
       cy(.045, .75, MAT.dark, .2, 1.9, -1.05), bx(.9, .5, 1.1, MAT.iron, 0, .95, .5));
-    for (const s of [-1, 1]) g.add(bx(.34, .08, 1.15, body, s * .84, 1.78, .6));
+    for (const s of [-1, 1]){
+      // curved mudguard over each big rear wheel
+      const guard = new THREE.Mesh(new THREE.CylinderGeometry(.98, .98, .42, 28, 1, true, -Math.PI * .55, Math.PI * 1.1), body);
+      guard.material.side = THREE.DoubleSide; guard.rotation.z = Math.PI / 2; guard.position.set(s * .84, .62, .62); g.add(guard);
+      g.add(ball(.07, basicMat({color:0xfff3c8}), s * .22, 1.32, -1.6), cy(.09, .04, MAT.steel, s * .22, 1.32, -1.57, 'z'));
+    }
+    // radiator grille bars and a capped exhaust
+    for (let a = 0; a < 5; a++) g.add(bx(.5, .035, .04, MAT.steel, 0, 1.08 + a * .09, -1.6, .012));
+    g.add(cy(.06, .06, MAT.dark, .2, 2.3, -1.05), cone(.05, .045, .12, MAT.steel, .2, 1.56, -1.05));
     if (o.cab){
       g.add(bx(1.15, 1.05, 1.15, MAT.glass, 0, 2.1, .45), bx(1.3, .1, 1.3, trim, 0, 2.68, .45), bx(1.2, .5, 1.2, body, 0, 1.4, .45));
       g.add(ball(.16, MAT.white, 0, 2.78, .45), cy(.015, .5, MAT.dark, .45, 2.95, .9));
@@ -2865,9 +2983,11 @@ const Game = (() => {
       parts.wheels = wl; parts.arm = armP;
     } else {
       const shirt = lam(SHIRTS[w.id % SHIRTS.length]), pants = lam(0x3b3a46);
-      const legs = [-1, 1].map(s => { const p = new THREE.Group(); p.position.set(s * .11, .82, 0); p.add(bx(.15, .82, .17, pants, 0, -.41, 0)); g.add(p); return p; });
-      g.add(bx(.44, .6, .26, shirt, 0, 1.12, 0), ball(.15, MAT.skin, 0, 1.58, 0), cy(.27, .05, MAT.straw, 0, 1.72, 0), cy(.14, .12, MAT.straw, 0, 1.78, 0));
-      const arms = [-1, 1].map(s => { const p = new THREE.Group(); p.position.set(s * .29, 1.38, 0); p.add(bx(.11, .56, .11, shirt, 0, -.28, 0)); g.add(p); return p; });
+      const boots = lam(0x2a1d14);
+      const legs = [-1, 1].map(s => { const p = new THREE.Group(); p.position.set(s * .11, .86, 0); p.add(cap(.15, .8, .16, pants, 0, -.4, 0), bx(.15, .12, .26, boots, 0, -.82, -.05, .05)); g.add(p); return p; });
+      g.add(bx(.42, .58, .25, shirt, 0, 1.15, 0, .1), bx(.43, .07, .26, lam(0x3a2a1a), 0, .89, 0, .03), bx(.36, .16, .22, pants, 0, .86, 0, .06));
+      head(g, 1.6, 0);
+      const arms = [-1, 1].map(s => { const p = new THREE.Group(); p.position.set(s * .27, 1.38, 0); p.add(cap(.12, .56, .12, shirt, 0, -.26, 0), ball(.055, MAT.skin, 0, -.56, 0)); g.add(p); return p; });
       const hoe = new THREE.Group(); hoe.add(cy(.022, 1.2, MAT.wood, 0, -.3, -.1), bx(.2, .05, .16, MAT.iron, 0, -.9, -.18)); arms[1].add(hoe); hoe.position.set(0, -.5, 0);
       parts.legs = legs; parts.arms = arms;
     }

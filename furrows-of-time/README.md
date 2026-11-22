@@ -102,7 +102,7 @@ Plowing, sowing, harvesting, clearing rocks, emptying the bag and entering a new
 
 ## Graphics
 
-The farm is drawn like a haystack game: big haystacks built from thousands of separate straws stand by the barns and around the farm, loose straw lies on plowed soil, straw flies up when you harvest or plow, and dust drifts in the sunlight. The field also has real-time shadows from the sun, a sky with sun or moon and drifting clouds, distant hills, and grass, crops and trees that sway in the wind. The shop has a Graphics setting:
+Models are built from rounded shapes: people with faces, hands, boots and straw hats; oxen and horses with rounded bodies, tapered legs, horns or manes and swishing tails; tractors with treaded rubber tyres, curved mudguards, a grille and headlights; barns of red planks with white trim, an X-braced door and shingled roofs; and a post-and-rail fence round the field. The farm is drawn like a haystack game: big haystacks built from thousands of separate straws stand by the barns and around the farm, loose straw lies on plowed soil, straw flies up when you harvest or plow, and dust drifts in the sunlight. The field also has real-time shadows from the sun, a sky with sun or moon and drifting clouds, distant hills, and grass, crops and trees that sway in the wind. The shop has a Graphics setting:
 
 - **High:** sharp shadows and the densest grass. The default on computers.
 - **Medium:** softer shadows and less grass. The default on phones.
