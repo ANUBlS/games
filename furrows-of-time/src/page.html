@@ -695,6 +695,9 @@ svg{display:block}
       'float sd = texture2D(tSoil, wuv * 0.5).r;',
       'float soil = smoothstep(0.12, 0.3, st) * (1.0 - smoothstep(0.75, 0.92, st));',
       'float det = mix(gd * 1.25, sd * 1.35, soil);',
+      'float cropped = smoothstep(0.5, 0.62, st);',
+      'float nearMe = 1.0 - smoothstep(16.0, 30.0, length(vViewPosition));',
+      'plot.rgb = mix(plot.rgb, vec3(0.12, 0.062, 0.028) * (0.8 + 0.4 * sd), cropped * nearMe);',
       'diffuseColor.rgb *= plot.rgb * det;',
       'float wildness = 1.0 - smoothstep(0.05, 0.2, st);',
       'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.89, 0.93) * (0.9 + 0.1 * gd), clamp(uSnow * mix(0.4, 0.92, wildness), 0.0, 1.0));',
@@ -936,18 +939,120 @@ svg{display:block}
     out.setIndex(idx); return out;
   }
   const gbox = (w, h, d, x, y, z) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); return g; };
-  const SPOTS = [[-.28, -.24, .8], [.24, -.2, .72], [0, .02, .88], [-.22, .28, .76], [.28, .26, .82]];
-  const stemPart = (x, z, h) => { const g = new THREE.CylinderGeometry(.018, .032, h, 5, 1); g.translate(x, h / 2, z); return g.index ? g : g; };
-  const leafPart = (x, z, h, a) => { const g = new THREE.ConeGeometry(.06, h * .55, 3, 1); g.scale(1, 1, .25); g.rotateZ(.75); g.rotateY(a); g.translate(x + Math.cos(a) * .1, h * .38, z - Math.sin(a) * .1); return g; };
-  const headPart = (x, z, h) => { const g = new THREE.SphereGeometry(1, 8, 6); g.scale(.085, .2, .085); g.translate(x, h + .14, z); return g; };
   const asIndexed = g => { if (!g.index){ const n = g.attributes.position.count, ix = []; for (let a = 0; a < n; a++) ix.push(a); g.setIndex(ix); } return g; };
-  const stemGeo = merged(SPOTS.flatMap(([x, z, h], q) => [stemPart(x, z, h), leafPart(x, z, h, q * 1.9), leafPart(x, z, h * .8, q * 1.9 + 2.6)]).map(asIndexed));
-  const headGeo = merged(SPOTS.map(([x, z, h]) => asIndexed(headPart(x, z, h))));
-  headGeo.computeVertexNormals();
-  const CAP = 1700;
-  const stems = new THREE.InstancedMesh(stemGeo, addWind(stdMat({color:0xffffff, roughness:.8}), .09), CAP);
-  const heads = new THREE.InstancedMesh(headGeo, addWind(stdMat({color:0xffffff, roughness:.7}), .09), CAP);
-  stems.castShadow = heads.castShadow = true; stems.receiveShadow = heads.receiveShadow = true;
+  /* ---------- plants ---------- */
+  // Each kind of crop is a small model of one plot's worth of plants: green parts (stems and leaves)
+  // and a coloured part (ears, fruit, pods, flowers, heads) that ripens from green to the crop's colour.
+  const M4 = new THREE.Matrix4(), Q4 = new THREE.Quaternion(), E4 = new THREE.Euler(), V4 = new THREE.Vector3(), S4 = new THREE.Vector3();
+  function put(g, x, y, z, rx, ry, rz, sx, sy, sz){
+    E4.set(rx || 0, ry || 0, rz || 0, 'YXZ'); Q4.setFromEuler(E4);
+    sx = sx || 1; M4.compose(V4.set(x, y, z), Q4, S4.set(sx, sy === undefined ? sx : sy, sz === undefined ? sx : sz));
+    g.applyMatrix4(M4); return asIndexed(g);
+  }
+  // A leaf blade: base at the origin, pointing up, curling over towards +z as it goes.
+  function leaf(len, wid, bend){
+    const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.quadraticCurveTo(wid, len * .38, 0, len); sh.quadraticCurveTo(-wid, len * .38, 0, 0);
+    const g = new THREE.ShapeGeometry(sh, 3), p = g.attributes.position;
+    for (let a = 0; a < p.count; a++){ const y = p.getY(a) / len; p.setZ(a, bend * y * y * len); p.setY(a, p.getY(a) * (1 - bend * y * .3)); }
+    g.computeVertexNormals(); return g;
+  }
+  const stalk = (h, r0, r1) => { const g = new THREE.CylinderGeometry(r1, r0, h, 5, 1); g.translate(0, h / 2, 0); return g; };
+  const blob = (rx, ry, rz, w, hs) => { const g = new THREE.SphereGeometry(1, w || 6, hs || 5); g.scale(rx, ry, rz); return g; };
+  let ps = 4321; const pr = () => { ps = (ps * 1664525 + 1013904223) >>> 0; return ps / 4294967296; };
+  const spots = (n, rad) => Array.from({length:n}, (_, a) => { const ang = a / n * Math.PI * 2 + pr() * .6, d = (n === 1 ? 0 : rad) * (.55 + pr() * .45); return [Math.cos(ang) * d, Math.sin(ang) * d]; });
+  function plantKit(kind){
+    const fol = [], fruit = [], accent = [];
+    if (kind === 'grain'){
+      for (const [x, z] of [...spots(8, .34), ...spots(4, .14)]){
+        const h = .7 + pr() * .2, lean = (pr() - .5) * .18, yaw = pr() * 6;
+        fol.push(put(stalk(h, .012, .008), x, 0, z, lean, yaw));
+        for (let q = 0; q < 3; q++) fol.push(put(leaf(.34, .042, .6), x, .06 + q * .17, z, .55 + pr() * .35, yaw + q * 2.1));
+        fruit.push(put(blob(.034, .12, .03, 6, 5), x + Math.sin(lean) * h * .1, h + .08, z, lean + .25, yaw));
+        for (let q = 0; q < 5; q++) fruit.push(put(stalk(.14, .004, .001), x, h + .12, z, .2 + q * .06, yaw + q * 1.3));
+      }
+    } else if (kind === 'corn'){
+      for (const [x, z] of [[-.2, -.15], [.2, .18]]){
+        const h = 1.05, yaw = pr() * 6;
+        fol.push(put(stalk(h, .036, .022), x, 0, z, 0, yaw));
+        for (let q = 0; q < 6; q++) fol.push(put(leaf(.55 - q * .04, .065, .85), x, .18 + q * .14, z, .85, yaw + q * Math.PI + (pr() - .5) * .6));
+        for (let q = 0; q < 5; q++) fol.push(put(stalk(.16, .006, .002), x, h, z, .5, yaw + q * 1.25));
+        fruit.push(put(blob(.045, .13, .045, 8, 6), x + .06, .58, z, .35, yaw));
+        fol.push(put(leaf(.22, .05, .2), x + .05, .45, z, .3, yaw));
+      }
+    } else if (kind === 'sunflower'){
+      for (const [x, z] of [[-.18, -.12], [.2, .16]]){
+        const h = .98, yaw = pr() * 6;
+        fol.push(put(stalk(h, .032, .022), x, 0, z, 0, yaw));
+        for (let q = 0; q < 5; q++) fol.push(put(leaf(.26, .12, .55), x, .25 + q * .14, z, .9, yaw + q * 2.4));
+        const head = [];
+        for (let q = 0; q < 18; q++){ const pt = leaf(.1, .03, 0); pt.translate(0, .065, .004); head.push(put(pt, 0, 0, 0, 0, 0, q / 18 * Math.PI * 2)); }
+        for (const g of head){ put(g, 0, 0, 0, 0, 0, 0); put(g, x, h + .02, z - .05, -.35, yaw); g.translate(0, 0, 0); fruit.push(g); }
+        accent.push(put(new THREE.CylinderGeometry(.075, .085, .035, 16), x, h + .02, z - .05, Math.PI / 2 - .35, yaw));
+      }
+    } else if (kind === 'boll'){
+      for (const [x, z] of spots(3, .22)){
+        const yaw = pr() * 6; fol.push(put(stalk(.7, .013, .006), x, 0, z, 0, yaw));
+        for (let q = 0; q < 6; q++) fol.push(put(leaf(.12, .07, .35), x, .2 + q * .08, z, .9, yaw + q * 2.2));
+      }
+      for (let q = 0; q < 10; q++){ const a = pr() * 6, d = pr() * .3; fruit.push(put(blob(.05, .045, .05, 6, 5), Math.cos(a) * d, .35 + pr() * .4, Math.sin(a) * d, pr(), pr() * 6)); }
+    } else if (kind === 'round'){
+      for (const [x, z] of spots(3, .2)){ const yaw = pr() * 6; fol.push(put(stalk(.7, .014, .008), x, 0, z, (pr() - .5) * .2, yaw)); }
+      for (let q = 0; q < 16; q++){ const a = pr() * 6, d = .05 + pr() * .25; fol.push(put(leaf(.16, .08, .45), Math.cos(a) * d, .12 + pr() * .55, Math.sin(a) * d, .8 + pr() * .5, a)); }
+      for (let q = 0; q < 7; q++){ const a = pr() * 6, d = .08 + pr() * .22; fruit.push(put(blob(.046, .044, .046, 8, 6), Math.cos(a) * d, .2 + pr() * .4, Math.sin(a) * d)); }
+    } else if (kind === 'gourd'){
+      for (let q = 0; q < 10; q++){ const a = pr() * 6, d = .05 + pr() * .35; fol.push(put(leaf(.24, .19, .15), Math.cos(a) * d, .03, Math.sin(a) * d, 1.25 + pr() * .2, a)); }
+      for (let q = 0; q < 5; q++){ const a = q * 1.3; fol.push(put(stalk(.45, .008, .008), 0, .03, 0, Math.PI / 2 - .05, a)); }
+      for (const [x, z] of [[-.16, .1], [.18, -.12]]) fruit.push(put(blob(.17, .13, .17, 12, 8), x, .12, z));
+    } else if (kind === 'leafy'){
+      for (let q = 0; q < 11; q++){ const a = q / 11 * Math.PI * 2 + pr() * .3; fol.push(put(leaf(.28, .17, .75), Math.cos(a) * .04, .03, Math.sin(a) * .04, 1.05 + pr() * .3, a + Math.PI / 2)); }
+      fruit.push(put(blob(.13, .12, .13, 10, 8), 0, .12, 0));
+      for (let q = 0; q < 5; q++){ const a = q * 1.25; fruit.push(put(leaf(.15, .12, .9), 0, .1, 0, .5, a)); }
+    } else if (kind === 'root'){
+      for (const [x, z] of spots(4, .26)){
+        const yaw = pr() * 6;
+        for (let q = 0; q < 6; q++) fol.push(put(leaf(.3 + pr() * .1, .045, .3), x, .02, z, .25 + pr() * .4, yaw + q * 1.05));
+        fruit.push(put(blob(.055, .06, .055, 8, 6), x, .025, z));
+      }
+    } else if (kind === 'pod'){
+      for (const [x, z] of spots(3, .22)){ const yaw = pr() * 6; fol.push(put(stalk(.6, .012, .007), x, 0, z, 0, yaw)); }
+      for (let q = 0; q < 15; q++){ const a = pr() * 6, d = .05 + pr() * .25; fol.push(put(leaf(.13, .075, .35), Math.cos(a) * d, .15 + pr() * .45, Math.sin(a) * d, .85 + pr() * .4, a)); }
+      for (let q = 0; q < 9; q++){ const a = pr() * 6, d = .06 + pr() * .2; fruit.push(put(blob(.018, .075, .018, 5, 4), Math.cos(a) * d, .2 + pr() * .35, Math.sin(a) * d, .3 + pr() * .4, a)); }
+    } else if (kind === 'berry'){
+      for (let q = 0; q < 13; q++){ const a = pr() * 6, d = .04 + pr() * .3; fol.push(put(leaf(.12, .085, .4), Math.cos(a) * d, .04 + pr() * .2, Math.sin(a) * d, 1.0 + pr() * .3, a)); }
+      for (let q = 0; q < 4; q++) fol.push(put(stalk(.28, .006, .004), 0, 0, 0, .7, q * 1.6));
+      for (let q = 0; q < 11; q++){ const a = pr() * 6, d = .06 + pr() * .28; fruit.push(put(blob(.03, .034, .03, 6, 5), Math.cos(a) * d, .04 + pr() * .22, Math.sin(a) * d)); }
+    } else {
+      // flowers: thin stems, a pair of leaves, a head of petals
+      for (const [x, z] of spots(6, .3)){
+        const h = .55 + pr() * .2, yaw = pr() * 6;
+        fol.push(put(stalk(h, .009, .006), x, 0, z, (pr() - .5) * .15, yaw));
+        for (let q = 0; q < 2; q++) fol.push(put(leaf(.14, .03, .3), x, .12 + q * .14, z, .8, yaw + q * Math.PI));
+        for (let q = 0; q < 5; q++) fruit.push(put(blob(.038, .01, .022, 5, 3), x + Math.cos(yaw + q * 1.257) * .03, h + .01, z + Math.sin(yaw + q * 1.257) * .03, 0, -(yaw + q * 1.257)));
+      }
+    }
+    const build = list => list.length ? (g => { g.computeVertexNormals(); return g; })(merged(list)) : null;
+    return {fol:build(fol), fruit:build(fruit), accent:build(accent)};
+  }
+  const SHAPE3D = {corn:'corn', nebulacorn:'corn', sunflower:'sunflower', cotton:'boll', pumpkin:'gourd', skymelon:'gourd',
+    tomato:'round', pepper:'round', sunfruit:'round', cabbage:'leafy', lettuce:'leafy', kale:'leafy', potato:'root'};
+  const SHAPE_H = {grain:1, corn:1.6, sunflower:1.75, boll:.85, round:.85, gourd:.5, leafy:.45, root:.5, pod:.7, berry:.4, flower:1};
+  const PLANT_CAP = 1500, folMat = addWind(stdMat({color:0xffffff, side:THREE.DoubleSide, roughness:.78}), .09), fruitMat = addWind(stdMat({color:0xffffff, roughness:.5, side:THREE.DoubleSide}), .09);
+  const accentMat = addWind(stdMat({color:0x4a2a12, roughness:.9}), .09);
+  const PLANTS = {}, PLANT_MESHES = [];
+  for (const kind of Object.keys(SHAPE_H)){
+    const kit = plantKit(kind), P = {n:0};
+    for (const part of ['fol', 'fruit', 'accent']){
+      if (!kit[part]) continue;
+      const m = new THREE.InstancedMesh(kit[part], part === 'fol' ? folMat : part === 'fruit' ? fruitMat : accentMat, PLANT_CAP);
+      m.frustumCulled = false; m.castShadow = true; m.receiveShadow = true;
+      if (part !== 'accent') m.setColorAt(0, new THREE.Color(1, 1, 1));
+      m.count = 0; scene.add(m); P[part] = m; PLANT_MESHES.push(m);
+    }
+    PLANTS[kind] = P;
+  }
+  const cropShape = G.CROPS.map(c => SHAPE3D[c.id] || (SHAPE_H[c.shape] ? c.shape : 'grain'));
+  const cropYScale = G.CROPS.map((c, i) => Math.max(.6, Math.min(1.6, c.h / SHAPE_H[cropShape[i]])));
+  const CAP = PLANT_CAP;
   const tmpColor = new THREE.Color(), GREEN = LIN(0x5a9a31);
   // Grass: a tuft of thin blades on each wild plot near you.
   const grassGeo = (() => {
@@ -1094,13 +1199,11 @@ svg{display:block}
     const p = new THREE.Points(g, ptsMat({color:0xfff0c0, size:.06, transparent:true, opacity:.55, depthWrite:false, blending:THREE.AdditiveBlending, map:dotTex}));
     p.frustumCulled = false; scene.add(p); return p;
   })();
-  stems.setColorAt(0, GREEN); heads.setColorAt(0, GREEN);
-  stems.count = heads.count = 0; stems.frustumCulled = heads.frustumCulled = false;
-  scene.add(stems, heads);
   const cropColor = G.CROPS.map(c => LIN(c.color)), stemColor = G.CROPS.map(c => LIN(c.stem));
   const dummy = new THREE.Object3D();
   function updateCrops(){
     const near = Math.ceil(Math.max(14, R.tool + 7)), gn = grassOn ? grassNear : 0, reach = Math.max(near, gn, 22); let n = 0, gc = 0, lc = 0, rc = 0;
+    for (const kind in PLANTS) PLANTS[kind].n = 0;
     // With the chalk outline bought, the grass inside the figure lies flat so the chalk shows.
     const artBare = S.art && S.art.hints.includes('outline') ? (a => [S.art.x0, S.art.x0 + a.w * S.art.s, S.art.z0, S.art.z0 + a.h * S.art.s])(G.artById[S.art.id]) : null;
     const ci = Math.floor((tci + S.px) / 2), cj = Math.floor((tcj + S.pz) / 2);
@@ -1136,22 +1239,26 @@ svg{display:block}
         }
         continue;
       }
-      if (st < G.GROWING || n >= CAP || d2 > near * near) continue;
-      const c = F.crop[k], crop = G.CROPS[c];
+      if (st < G.GROWING || d2 > near * near) continue;
+      const c = F.crop[k], crop = G.CROPS[c], P = PLANTS[cropShape[c]];
+      if (P.n >= PLANT_CAP) continue;
       const g = st === G.RIPE ? 1 : Math.max(0, Math.min(1, 1 - (F.ripe[k] - S.clock) / G.growSeconds(crop, R)));
-      const sc = (.2 + .8 * g) * Math.min(1, (near - Math.sqrt(d2)) / 3 + .15);
-      dummy.position.set(i + .5, 0, j + .5); dummy.rotation.y = noise[k] * 40; dummy.scale.set(sc, sc * crop.h, sc); dummy.updateMatrix();
-      stems.setMatrixAt(n, dummy.matrix); heads.setMatrixAt(n, dummy.matrix);
-      if (st === G.RIPE){ stems.setColorAt(n, stemColor[c]); heads.setColorAt(n, cropColor[c]); }
-      else { stems.setColorAt(n, GREEN); heads.setColorAt(n, tmpColor.copy(GREEN).lerp(cropColor[c], g * .45)); }
+      const sc = (.25 + .75 * g) * Math.min(1, (near - Math.sqrt(d2)) / 3 + .15);
+      dummy.position.set(i + .5, 0, j + .5); dummy.rotation.y = noise[k] * 40; dummy.scale.set(sc, sc * cropYScale[c], sc); dummy.updateMatrix();
+      const at = P.n++;
+      P.fol.setMatrixAt(at, dummy.matrix); P.fruit.setMatrixAt(at, dummy.matrix); if (P.accent) P.accent.setMatrixAt(at, dummy.matrix);
+      // stems turn from fresh green to the crop's own straw or stem colour as it ripens; fruit from green to its colour
+      P.fol.setColorAt(at, tmpColor.copy(GREEN).lerp(stemColor[c], st === G.RIPE ? 1 : g * .4));
+      P.fruit.setColorAt(at, tmpColor.copy(GREEN).lerp(cropColor[c], st === G.RIPE ? 1 : Math.max(0, g - .35) * .6));
       n++;
     }
-    stems.count = heads.count = n;
+    for (const kind in PLANTS){
+      const P = PLANTS[kind];
+      for (const part of ['fol', 'fruit', 'accent']){ const m = P[part]; if (!m) continue; m.count = P.n; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+    }
     grass.count = gc; grass.instanceMatrix.needsUpdate = true; if (grass.instanceColor) grass.instanceColor.needsUpdate = true;
     rocks.count = rc; rocks.instanceMatrix.needsUpdate = true; if (rocks.instanceColor) rocks.instanceColor.needsUpdate = true;
     loose.count = lc; loose.instanceMatrix.needsUpdate = true; if (loose.instanceColor) loose.instanceColor.needsUpdate = true;
-    stems.instanceMatrix.needsUpdate = heads.instanceMatrix.needsUpdate = true;
-    stems.instanceColor.needsUpdate = heads.instanceColor.needsUpdate = true;
   }
 
   // A thin pale ring marks the reach of the tool. The tool itself does the showing.
@@ -1464,6 +1571,7 @@ svg{display:block}
       if (sun.shadow.map){ sun.shadow.map.dispose(); sun.shadow.map = null; }
       scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => { m.needsUpdate = true; }); });
     }
+    for (const m of PLANT_MESHES) m.castShadow = q === 'high';
     grassOn = q !== 'low'; grassNear = q === 'high' ? 24 : 18; grass.visible = grassOn; loose.visible = grassOn;
     for (const st of stacks){ const full = q === 'high' ? 1 : q === 'medium' ? .55 : .2;
       st.userData.straws.count = Math.round(st.userData.straws.instanceMatrix.count * full); st.userData.skirt.visible = q !== 'low'; }
